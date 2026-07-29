@@ -1,0 +1,68 @@
+{{- if .Values.whisper.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: whisper
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: whisper
+  template:
+    metadata:
+      labels:
+        app: whisper
+    spec:
+      containers:
+        - name: whisper
+          image: {{ .Values.whisper.image }}
+          ports:
+            - containerPort: 9000
+          env:
+            - name: ASR_MODEL
+              value: {{ .Values.whisper.model | quote }}
+            - name: ASR_ENGINE
+              value: faster_whisper # CTranslate2, int8 on CPU
+            - name: ASR_MODEL_PATH
+              value: /models # cache to the PVC so model isn't re-downloaded on restart
+          volumeMounts:
+            - name: models
+              mountPath: /models
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
+            limits:
+              cpu: 3000m # transcription is bursty; allow cores for acceptable latency
+              memory: 3Gi
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: whisper-models
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: whisper-models
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- with .Values.whisper.persistence.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.whisper.persistence.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: whisper
+spec:
+  selector:
+    app: whisper
+  ports:
+    - port: 9000
+      targetPort: 9000
+  type: ClusterIP
+{{- end }}

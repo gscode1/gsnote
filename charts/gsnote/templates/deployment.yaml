@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gsnote
+spec:
+  replicas: 1 # SQLite is single-writer; do not scale beyond 1.
+  strategy:
+    type: Recreate # avoid two pods writing the same SQLite file during a rolling update
+  selector:
+    matchLabels:
+      app: gsnote
+  template:
+    metadata:
+      labels:
+        app: gsnote
+    spec:
+      containers:
+        - name: gsnote
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: gsnote-config
+            - secretRef:
+                name: gsnote-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: gsnote-data

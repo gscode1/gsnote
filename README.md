@@ -1,0 +1,121 @@
+# gsnote
+
+A personal memory bot for Telegram. Send notes, ask questions later, get a weekly nudge so nothing is forgotten.
+
+Self-hosted · single-user · your own LLM key · Apache-2.0
+
+---
+
+## What you need
+
+1. A [Telegram bot token](https://t.me/BotFather)
+2. Your Telegram user id ([@userinfobot](https://t.me/userinfobot))
+3. An LLM API key (OpenRouter, Anthropic, or any OpenAI-compatible provider)
+
+---
+
+## Setup
+
+```bash
+cp .env.example .env
+```
+
+Fill in at least:
+
+```bash
+LLM_API_KEY=...
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_ALLOWED_USER_IDS=123456789   # your numeric id; comma-separate for more
+```
+
+Then:
+
+```bash
+docker compose up --build
+```
+
+Open your bot in Telegram and send a message. Done.
+
+### Without Docker
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -e .
+cp .env.example .env   # same required vars
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+### Kubernetes (Helm)
+
+```bash
+cp charts/gsnote/values.yaml my-secrets.yaml   # fill in image + secrets (gitignored)
+helm install gsnote charts/gsnote -n gsnote --create-namespace -f my-secrets.yaml
+```
+
+Optional in-cluster whisper STT: set `whisper.enabled=true` and point `config.STT_BASE_URL` at `http://whisper:9000/v1`.
+
+---
+
+## How to use
+
+| You send | What happens |
+|---|---|
+| A note or idea | Saved to your memory (classified + searchable) |
+| A question | Searches your notes and answers from them |
+| A voice note | Transcribed, then treated like text *(needs STT — see below)* |
+| `/work` or `/personal` | Switch space — notes stay separate |
+| `/space` | Show which space is active |
+| Weekly digest buttons | Engaged / Dismiss / Snooze |
+
+Spaces keep work and personal notes apart. New notes and questions use the active space.
+
+---
+
+## Config
+
+Minimum (required when `CHANNEL=telegram`):
+
+| Variable | What it is |
+|---|---|
+| `LLM_API_KEY` | Your provider key |
+| `LLM_PROVIDER` | `openrouter` (default), `anthropic`, or any OpenAI-compatible name |
+| `TELEGRAM_BOT_TOKEN` | From BotFather |
+| `TELEGRAM_ALLOWED_USER_IDS` | Your Telegram id(s) — empty = bot refuses to start |
+
+Useful optional vars:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `CLASSIFIER_MODEL` / `ANSWER_MODEL` | cheap / strong | Models for tagging notes vs answering |
+| `CHANNEL=none` | — | HTTP only (no Telegram) |
+| `RESURFACING_CRON` | `0 9 * * MON` | Weekly digest schedule |
+| `STT_ENABLED` / `STT_BASE_URL` | off | Voice notes via an OpenAI-compatible STT endpoint |
+
+Full list: [`.env.example`](.env.example).
+
+---
+
+## Privacy
+
+Notes live in local SQLite. When the bot reasons, content goes to **your** LLM provider. You pick the key and endpoint.
+
+---
+
+## Backup (optional)
+
+Off by default. Set `LITESTREAM_ENABLED=true` plus S3 vars in `.env`, then restart. Restore runs on container start when Litestream is on and no local DB exists.
+
+---
+
+## Develop
+
+```bash
+pip install -e ".[dev]"
+pytest
+```
+
+---
+
+## License
+
+Apache-2.0 — see [`LICENSE`](LICENSE).

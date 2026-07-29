@@ -1,0 +1,13 @@
+# Litestream config (PRD §11) — continuous SQLite -> S3 replication.
+# Env-substituted at runtime via ${VAR} syntax (litestream supports this natively).
+dbs:
+  - path: ${DB_PATH}
+    replicas:
+      - type: s3
+        bucket: ${S3_BUCKET}
+        path: gsnote
+        endpoint: ${S3_ENDPOINT}
+        region: ${S3_REGION}
+        access-key-id: ${S3_ACCESS_KEY_ID}
+        secret-access-key: ${S3_SECRET_ACCESS_KEY}
+        force-path-style: true # MinIO via service DNS/IP endpoint needs path-style, not vhost

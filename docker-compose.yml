@@ -1,0 +1,19 @@
+services:
+  gsnote:
+    build:
+      context: .
+      args:
+        TARGETARCH: ${TARGETARCH:-amd64}
+    image: gsnote:local
+    env_file:
+      - .env
+    environment:
+      DB_PATH: /data/gsnote.db
+    volumes:
+      - gsnote-data:/data
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+volumes:
+  gsnote-data:

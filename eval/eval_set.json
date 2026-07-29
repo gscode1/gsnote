@@ -1,0 +1,58 @@
+{
+  "notes": [
+    {"id": "n1", "content": "Idea: build a note app with hybrid search combining vectors and keywords", "category": "idea", "importance": 4},
+    {"id": "n2", "content": "Buy oat milk, eggs, and bananas at the grocery store", "category": "task", "importance": 2},
+    {"id": "n3", "content": "Meeting with Sam on Tuesday about the Q3 roadmap", "category": "meeting", "importance": 4},
+    {"id": "n4", "content": "Intention: start running three times a week", "category": "intention", "importance": 3},
+    {"id": "n5", "content": "Idea: a knowledge graph for proactive resurfacing of forgotten notes", "category": "idea", "importance": 5},
+    {"id": "n6", "content": "Pick up dry cleaning before Friday", "category": "task", "importance": 1},
+    {"id": "n7", "content": "Meeting notes: discussed database migration strategy with the backend team", "category": "meeting", "importance": 4},
+    {"id": "n8", "content": "Intention: read one book per month this year", "category": "intention", "importance": 2},
+    {"id": "n9", "content": "Idea: weekly digest of open loops instead of real-time notifications", "category": "idea", "importance": 5},
+    {"id": "n10", "content": "Renew passport before the trip to Japan in spring", "category": "task", "importance": 3},
+    {"id": "n11", "content": "Brainstorm: gamify note capture with streaks to encourage daily logging", "category": "idea", "importance": 3},
+    {"id": "n12", "content": "Call the dentist to reschedule next week's appointment", "category": "task", "importance": 2}
+  ],
+  "queries": [
+    {
+      "query": "what ideas do I have about search and retrieval?",
+      "expected_ids": ["n1", "n5"],
+      "note": "lexical overlap is weak (search vs hybrid search) — needs semantic + keyword fusion"
+    },
+    {
+      "query": "grocery shopping list",
+      "expected_ids": ["n2"],
+      "note": "keyword-friendly: oat milk / eggs / bananas appear directly"
+    },
+    {
+      "query": "anything about the Q3 roadmap meeting?",
+      "expected_ids": ["n3"],
+      "note": "keyword-friendly: roadmap, meeting appear directly"
+    },
+    {
+      "query": "what intentions have I set for myself?",
+      "expected_ids": ["n4", "n8"],
+      "note": "semantic: 'intentions' as a concept, not always lexically present"
+    },
+    {
+      "query": "notes about not forgetting things I captured",
+      "expected_ids": ["n5", "n9"],
+      "note": "semantic: 'forgetting'/'resurfacing'/'open loops' cluster, low lexical overlap"
+    },
+    {
+      "query": "database migration discussion",
+      "expected_ids": ["n7"],
+      "note": "keyword-friendly"
+    },
+    {
+      "query": "errands I still need to run",
+      "expected_ids": ["n2", "n6", "n10", "n12"],
+      "note": "semantic: 'errands' doesn't appear in any note; recall depends on vector+graph"
+    },
+    {
+      "query": "ideas to make capturing notes more engaging",
+      "expected_ids": ["n11"],
+      "note": "semantic: 'engaging' vs 'gamify'/'streaks'"
+    }
+  ]
+}

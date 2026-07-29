@@ -1,0 +1,6 @@
+apiVersion: v2
+name: gsnote
+description: Self-hosted note-first memory agent (Telegram capture, hybrid retrieval, resurfacing)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

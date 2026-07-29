@@ -1,0 +1,57 @@
+image:
+  repository: gsnote # override with your registry, e.g. ghcr.io/you/gsnote
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Non-secret config — rendered into the gsnote-config ConfigMap.
+# Full list: see .env.example in the repo root.
+config:
+  DB_PATH: /data/gsnote.db
+  LLM_PROVIDER: openrouter
+  LLM_BASE_URL: https://openrouter.ai/api/v1
+  CLASSIFIER_MODEL: openai/gpt-4o-mini
+  ANSWER_MODEL: openai/gpt-4o
+  EMBEDDING_MODEL: BAAI/bge-large-en-v1.5
+  EMBEDDING_DIM: "1024"
+  CHANNEL: telegram
+  STT_ENABLED: "false"
+  # STT_BASE_URL: http://whisper:9000/v1  # in-cluster whisper, see whisper.enabled
+  # STT_MODEL: whisper-large-v3-turbo
+  RESURFACING_ENABLED: "true"
+  RESURFACING_CRON: "0 9 * * MON"
+  LITESTREAM_ENABLED: "false"
+  # S3_BUCKET: ""
+  # S3_ENDPOINT: ""
+  # S3_REGION: us-east-1
+
+# Secrets — rendered into the gsnote-secrets Secret.
+# Don't commit real values; pass at install time:
+#   helm install gsnote charts/gsnote -f my-secrets.yaml   (gitignored)
+secrets:
+  LLM_API_KEY: ""
+  TELEGRAM_BOT_TOKEN: ""
+  TELEGRAM_ALLOWED_USER_IDS: "" # required — comma-separated numeric Telegram ids
+  S3_ACCESS_KEY_ID: ""
+  S3_SECRET_ACCESS_KEY: ""
+  STT_API_KEY: "" # optional
+
+persistence:
+  size: 2Gi
+  # storageClassName: local-path
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 1Gi
+  limits:
+    cpu: 1000m
+    memory: 3Gi # in-process embeddings (fastembed/ONNX) need headroom
+
+# Optional in-cluster whisper STT sidecar (CPU, faster-whisper).
+whisper:
+  enabled: false
+  image: onerahmet/openai-whisper-asr-webservice:latest
+  model: small # base/small are the CPU sweet spot for short voice notes
+  persistence:
+    size: 2Gi # model cache
+    # storageClassName: local-path
