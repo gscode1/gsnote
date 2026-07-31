@@ -1,5 +1,7 @@
 # gsnote
 
+[![Tests](https://github.com/gscode1/gsnote/actions/workflows/test.yml/badge.svg)](https://github.com/gscode1/gsnote/actions/workflows/test.yml)
+
 A personal memory bot for Telegram. Send notes, ask questions later, get a weekly nudge so nothing is forgotten.
 
 Self-hosted · single-user · your own LLM key · Apache-2.0
@@ -31,7 +33,8 @@ TELEGRAM_ALLOWED_USER_IDS=123456789   # your numeric id; comma-separate for more
 Then:
 
 ```bash
-docker compose up --build
+docker compose pull   # prebuilt multi-arch image from GHCR
+docker compose up -d
 ```
 
 ### Verify it works
@@ -46,9 +49,15 @@ Open your bot in Telegram. You should see an exchange like:
 >
 > **Bot:** You promised to fix the leaky tap by Friday.
 
-If the bot answers your question from the note you just sent, everything is wired up. No reply? Check `docker compose logs` — the bot refuses to start with a clear error if a required variable is missing.
+If the bot answers your question from the note you just sent, everything is wired up. No reply? Check `docker compose logs -f` — the bot refuses to start with a clear error if a required variable is missing.
 
 ### Other ways to run (optional)
+
+Build from source instead of pulling:
+
+```bash
+docker compose up --build
+```
 
 Without Docker:
 
@@ -140,6 +149,8 @@ Off by default. Set `LITESTREAM_ENABLED=true` plus S3 vars in `.env`, then resta
 pip install -e ".[dev]"
 pytest
 ```
+
+Contributing a channel or fix? See [`CONTRIBUTING.md`](CONTRIBUTING.md). Security issues: [`SECURITY.md`](SECURITY.md).
 
 ---
 
