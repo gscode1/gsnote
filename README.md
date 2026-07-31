@@ -119,6 +119,23 @@ Full list: [`.env.example`](.env.example).
 
 ---
 
+## CLI
+
+`pip install -e .` also installs a `gsnote` command that talks to the HTTP API. Set `API_TOKEN` (required) and `GSNOTE_URL` (default `http://localhost:8000`):
+
+```bash
+gsnote health
+gsnote add "I told the landlord I'd fix the tap by Friday" --space home
+echo "from a pipe" | gsnote add
+gsnote search "landlord" --top-k 5
+gsnote report "what did I promise?"
+gsnote export -o gsnote-export.json
+```
+
+Add `--json` to any command for the raw API response.
+
+---
+
 ## Export
 
 Your notes are yours. Download everything as JSON (needs `API_TOKEN`):
