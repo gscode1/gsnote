@@ -7,14 +7,17 @@ from datetime import datetime, timedelta, timezone
 from app.agents import phrase_nudge
 from app.config import get_settings
 from app.db import cursor, get_conn
+from app.spaces import scope_filter
 
 
 @dataclass(frozen=True)
 class Digest:
-    """What resurfacing hands the channel: text + the notification row to attach responses to."""
+    """What resurfacing hands the channel: text + target user + the notification row
+    to attach responses to."""
 
     message: str
     notification_id: str
+    user_id: str
 
 
 def _now() -> str:
@@ -38,12 +41,13 @@ def _suppressed_note_ids(conn, cooldown_days: int) -> set[str]:
     return suppressed
 
 
-def score_candidates(space: str | None = None) -> list[dict]:
+def score_candidates(space: str | None = None, owner: str | None = None) -> list[dict]:
     """Heuristic SQL scoring — no LLM needed to select.
 
     score = w1*open_loop + w2*(staleness * importance) + w3*recurrence - suppressors
 
-    `space` scopes scoring to one space; None scores across all spaces.
+    `space` scopes scoring to one space (None = all spaces); `owner` scopes to one
+    user's notes (None = all owners).
     """
     conn = get_conn()
     settings = get_settings()
@@ -57,9 +61,9 @@ def score_candidates(space: str | None = None) -> list[dict]:
         WHERE n.deleted_at IS NULL
     """
     params: list = []
-    if space is not None:
-        sql += " AND n.space = ?"
-        params.append(space)
+    scope_sql, scope_params = scope_filter(owner, space, alias="n")
+    sql += scope_sql
+    params.extend(scope_params)
     rows = conn.execute(sql, params).fetchall()
 
     now = datetime.now(timezone.utc)
@@ -88,16 +92,16 @@ def score_candidates(space: str | None = None) -> list[dict]:
     return candidates[: settings.resurfacing_budget]
 
 
-async def _send_digest_for_space(send_fn, space: str) -> dict:
-    """Score, phrase, send, and log a digest for a single space."""
-    candidates = score_candidates(space)
+async def _send_digest_for_space(send_fn, space: str, owner: str) -> dict:
+    """Score, phrase, send, and log a digest for a single owner's space."""
+    candidates = score_candidates(space, owner=owner)
     if not candidates:
-        return {"space": space, "sent": False, "reason": "no candidates above threshold"}
+        return {"space": space, "owner": owner, "sent": False, "reason": "no candidates above threshold"}
 
     body = await phrase_nudge(candidates)
     message = f"🗂 {space.capitalize()} — {body}"
     notification_id = str(uuid.uuid4())
-    digest = Digest(message=message, notification_id=notification_id)
+    digest = Digest(message=message, notification_id=notification_id, user_id=owner)
 
     result = send_fn(digest)
     if hasattr(result, "__await__"):
@@ -116,6 +120,7 @@ async def _send_digest_for_space(send_fn, space: str) -> dict:
         )
     return {
         "space": space,
+        "owner": owner,
         "sent": True,
         "note_ids": [c["id"] for c in candidates],
         "message": message,
@@ -124,17 +129,19 @@ async def _send_digest_for_space(send_fn, space: str) -> dict:
 
 
 async def run_digest(send_fn) -> dict:
-    """Run the weekly digest per space: each space gets its own scored, labeled nudge.
+    """Run the weekly digest per owner and space: each user's space gets its own
+    scored, labeled nudge, delivered only to that user.
 
-    Keeping spaces separate avoids mixing work and personal open loops in one message.
+    Keeping owners and spaces separate avoids mixing one user's (or one life's area's)
+    open loops into another's message.
     send_fn(digest: Digest) -> None (sync or async).
     """
     from app.db import get_conn
 
-    rows = get_conn().execute("SELECT DISTINCT space FROM notes").fetchall()
+    rows = get_conn().execute("SELECT DISTINCT source, space FROM notes").fetchall()
     results = []
-    for space in sorted(r["space"] for r in rows):
-        results.append(await _send_digest_for_space(send_fn, space))
+    for r in sorted(rows, key=lambda r: (r["source"], r["space"])):
+        results.append(await _send_digest_for_space(send_fn, r["space"], r["source"]))
     sent_any = any(r["sent"] for r in results)
     return {"sent": sent_any, "spaces": results}
 

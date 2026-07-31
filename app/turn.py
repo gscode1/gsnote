@@ -74,22 +74,17 @@ async def handle_response(user_id: str, response: str, notification_id: str) -> 
 
 
 def make_digest_sender(channel: Channel | None):
-    """send_fn for resurfacing: push Digest with buttons via the channel's recipients."""
+    """send_fn for resurfacing: push Digest with buttons to its owning user only."""
 
     async def send_fn(digest: Digest) -> None:
         if channel is None:
             logger.warning("No channel configured; resurfacing message not sent: %s", digest.message)
             return
-        targets = channel.recipients()
-        if not targets:
-            logger.warning("Channel has no digest recipients; not sent: %s", digest.message)
-            return
-        for uid in targets:
-            await channel.send(
-                uid,
-                digest.message,
-                with_nudge_buttons=True,
-                notification_id=digest.notification_id,
-            )
+        await channel.send(
+            digest.user_id,
+            digest.message,
+            with_nudge_buttons=True,
+            notification_id=digest.notification_id,
+        )
 
     return send_fn

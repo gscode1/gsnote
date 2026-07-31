@@ -110,6 +110,9 @@ async def report_endpoint(req: ReportRequest):
 
 @app.get("/export", dependencies=[Depends(require_api_token)])
 def export_endpoint():
+    # Admin surface: behind API_TOKEN, deliberately exports every owner's notes.
+    # Bot paths (search/report/digest/spaces) are owner-scoped via spaces.scope_filter.
+
     with cursor() as cur:
         rows = cur.execute(
             "SELECT id, content, category, importance, source, space,"

@@ -84,11 +84,12 @@ async def test_handle_response_records_against_notification_id():
 
 @pytest.mark.anyio
 async def test_digest_sender_pushes_buttons_with_notification_id():
-    channel = FakeChannel(recipients=["42"])
+    channel = FakeChannel(recipients=["42", "43"])
     send_fn = make_digest_sender(channel)
-    digest = Digest(message="nudge", notification_id="nid-1")
+    digest = Digest(message="nudge", notification_id="nid-1", user_id="42")
     await send_fn(digest)
 
+    # Targeted to the digest's owner only, not broadcast to all recipients.
     assert channel.sent == [("42", "nudge", True, "nid-1")]
 
 

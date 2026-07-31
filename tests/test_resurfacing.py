@@ -15,6 +15,7 @@ def _insert_note(
     access_count: int = 0,
     last_accessed_days_ago: int | None = None,
     space: str = "personal",
+    source: str = "alice",
 ) -> str:
     note_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
@@ -27,8 +28,8 @@ def _insert_note(
     with cursor() as cur:
         cur.execute(
             "INSERT INTO notes (id, content, category, importance, source, space, created_at, updated_at, "
-            "last_accessed_at, access_count) VALUES (?, ?, 'idea', ?, 'alice', ?, ?, ?, ?, ?)",
-            (note_id, content, importance, space, created_at, created_at, last_accessed_at, access_count),
+            "last_accessed_at, access_count) VALUES (?, ?, 'idea', ?, ?, ?, ?, ?, ?, ?)",
+            (note_id, content, importance, source, space, created_at, created_at, last_accessed_at, access_count),
         )
     return note_id
 
@@ -165,6 +166,32 @@ async def test_run_digest_is_per_space(monkeypatch):
     # Each space's digest contains only its own note.
     assert "work open loop" in work_msg and "personal open loop" not in work_msg
     assert "personal open loop" in personal_msg and "work open loop" not in personal_msg
+
+
+@pytest.mark.anyio
+async def test_run_digest_is_per_owner(monkeypatch):
+    _insert_note("alice open loop", importance=5, created_days_ago=10, space="default", source="alice")
+    _insert_note("bob open loop", importance=5, created_days_ago=10, space="default", source="bob")
+
+    import app.resurfacing as resurfacing_module
+
+    async def fake_phrase_nudge(notes):
+        return notes[0]["content"]
+
+    monkeypatch.setattr(resurfacing_module, "phrase_nudge", fake_phrase_nudge)
+
+    sent = []
+
+    async def fake_send(digest):
+        sent.append(digest)
+
+    result = await run_digest(fake_send)
+    assert result["sent"] is True
+    assert len(sent) == 2  # one per owner, same space
+
+    by_user = {d.user_id: d.message for d in sent}
+    assert "alice open loop" in by_user["alice"] and "bob" not in by_user["alice"]
+    assert "bob open loop" in by_user["bob"] and "alice" not in by_user["bob"]
 
 
 @pytest.mark.anyio

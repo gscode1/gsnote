@@ -80,3 +80,31 @@ async def test_window_report_is_space_scoped():
 
     work = [n["content"] for n in notes_in_window(7, space="work")]
     assert work == ["work task one"]
+
+@pytest.mark.anyio
+async def test_search_is_owner_scoped():
+    # Two allowlisted users sharing one space must not see each other's notes.
+    await capture.capture_note("shared space note from alice", source="alice", space="default")
+    await capture.capture_note("shared space note from bob", source="bob", space="default")
+
+    alice_hits = [n["content"] for n in search("shared space note", space="default", owner="alice")]
+    bob_hits = [n["content"] for n in search("shared space note", space="default", owner="bob")]
+
+    assert alice_hits == ["shared space note from alice"]
+    assert bob_hits == ["shared space note from bob"]
+
+@pytest.mark.anyio
+async def test_window_report_is_owner_scoped():
+    await capture.capture_note("alice idea this week", source="alice", space="default")
+    await capture.capture_note("bob idea this week", source="bob", space="default")
+
+    alice = [n["content"] for n in notes_in_window(7, space="default", owner="alice")]
+    assert alice == ["alice idea this week"]
+
+@pytest.mark.anyio
+async def test_list_spaces_is_owner_scoped():
+    await capture.capture_note("alice hobby note", source="alice", space="hobby")
+    await capture.capture_note("bob work note", source="bob", space="work")
+
+    assert spaces.list_spaces("alice") == ["default", "hobby"]  # active space always listed
+    assert spaces.list_spaces("bob") == ["default", "work"]

@@ -170,7 +170,7 @@ def memory_agent() -> Agent[NoteDeps, str]:
 
         if not query.strip():
             raise ModelRetry("Search query is empty. Provide a topic or keyword to search for.")
-        notes = search(query, top_k=limit, space=ctx.deps.space)
+        notes = search(query, top_k=limit, space=ctx.deps.space, owner=ctx.deps.user_id)
         if not notes:
             return "No matching notes found."
         return "\n".join(f"- [{n['category']}] {n['content']} ({n['created_at']})" for n in notes)
@@ -185,7 +185,7 @@ def memory_agent() -> Agent[NoteDeps, str]:
         """
         from app.reporting import notes_in_window
 
-        notes = notes_in_window(days, category, space=ctx.deps.space)
+        notes = notes_in_window(days, category, space=ctx.deps.space, owner=ctx.deps.user_id)
         if not notes:
             return f"No notes found in the last {days} day(s)."
         return "\n".join(f"- [{n['category']}] {n['content']} ({n['created_at']})" for n in notes)
