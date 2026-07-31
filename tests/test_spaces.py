@@ -25,7 +25,28 @@ def test_active_space_default_and_toggle():
 
 def test_set_invalid_space_raises():
     with pytest.raises(ValueError):
-        spaces.set_space("u1", "bogus")
+        spaces.set_space("u1", "!!bad name!!")
+
+
+def test_custom_space_normalize_and_roundtrip():
+    spaces.set_space("u1", "  Side Project_X ")
+    assert spaces.get_space("u1") == "side-project-x"
+
+
+@pytest.mark.anyio
+async def test_list_spaces_includes_active_and_used():
+    await capture.capture_note("work thing", source="u1", space="work")
+    spaces.set_space("u1", "hobby")
+    assert spaces.list_spaces("u1") == ["hobby", "work"]
+
+
+@pytest.mark.anyio
+async def test_custom_space_isolates_notes():
+    await capture.capture_note("hobby guitar practice", source="u1", space="hobby")
+    await capture.capture_note("hobby project deadline", source="u1", space="work")
+
+    hobby_hits = [n["content"] for n in search("hobby", space="hobby")]
+    assert hobby_hits == ["hobby guitar practice"]
 
 
 @pytest.mark.anyio

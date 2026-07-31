@@ -22,7 +22,7 @@ async def _seed(monkeypatch, items: list[tuple[str, str, int]]):
     return notes
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_keyword_search_finds_lexical_match(monkeypatch):
     await _seed(
         monkeypatch,
@@ -37,7 +37,7 @@ async def test_keyword_search_finds_lexical_match(monkeypatch):
     assert any("oat milk" in c for c in contents)
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_importance_boost_affects_ranking(monkeypatch):
     notes = await _seed(
         monkeypatch,
@@ -54,7 +54,7 @@ async def test_importance_boost_affects_ranking(monkeypatch):
     assert scores_by_id[notes[0]["id"]] >= scores_by_id[notes[1]["id"]]
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_search_bumps_access_count(monkeypatch):
     notes = await _seed(monkeypatch, [("Plan a trip to the mountains next spring", "idea", 3)])
 
@@ -73,7 +73,7 @@ async def test_search_bumps_access_count(monkeypatch):
     assert after == before + 1
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_graph_expansion_surfaces_related_note(monkeypatch):
     """A note with no lexical/vector overlap with the query, but linked via a temporal edge
     to a note that does match, should be surfaced by the graph candidate generator."""
@@ -91,7 +91,7 @@ async def test_graph_expansion_surfaces_related_note(monkeypatch):
     assert notes[0]["id"] in ids
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_vector_candidates_respect_space_when_other_space_dominates(monkeypatch):
     """Space-scoped vector search must not starve when another space owns global top-N."""
     from app.config import get_settings

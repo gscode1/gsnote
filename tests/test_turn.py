@@ -58,7 +58,7 @@ def _mock_classifier(monkeypatch):
     monkeypatch.setattr(capture, "classify_note", fake_classify)
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_space_switch_clears_history():
     _history_by_user["u1"] = ["prior turn"]
     reply = await handle_command("u1", "work", "")
@@ -67,7 +67,7 @@ async def test_space_switch_clears_history():
     assert "u1" not in _history_by_user
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_handle_response_records_against_notification_id():
     notif_id = str(uuid.uuid4())
     with cursor() as cur:
@@ -82,7 +82,7 @@ async def test_handle_response_records_against_notification_id():
     assert row["user_response"] == "dismissed"
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_digest_sender_pushes_buttons_with_notification_id():
     channel = FakeChannel(recipients=["42"])
     send_fn = make_digest_sender(channel)
@@ -103,5 +103,45 @@ async def test_handle_message_runs_agent_and_replies(monkeypatch):
     with agent.override(model=FunctionModel(fn)):
         await handle_message(channel, "u1", "hello")
 
-    assert channel.sent == [("u1", "got it", False, None)]
+    assert channel.sent == [("u1", "got it [personal]", False, None)]
     assert "u1" in _history_by_user
+
+
+@pytest.mark.anyio
+async def test_handle_message_tags_reply_with_space_used(monkeypatch):
+    channel = FakeChannel()
+
+    def fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        return ModelResponse(parts=[TextPart("saved it")])
+
+    await handle_command("u1", "space", "side-project")
+    agent = memory_agent()
+    with agent.override(model=FunctionModel(fn)):
+        await handle_message(channel, "u1", "remember this")
+
+    assert channel.sent[0][1] == "saved it [side-project]"
+
+
+@pytest.mark.anyio
+async def test_space_command_creates_and_switches():
+    _history_by_user["u1"] = ["prior turn"]
+    reply = await handle_command("u1", "space", "Hobby")
+    assert "hobby" in reply
+    assert get_space("u1") == "hobby"
+    assert "u1" not in _history_by_user
+
+
+@pytest.mark.anyio
+async def test_space_command_lists_spaces():
+    await capture.capture_note("a personal note", source="u1", space="personal")
+    await handle_command("u1", "work", "")
+    reply = await handle_command("u1", "space", "")
+    assert "Active space: work" in reply
+    assert "personal" in reply  # used spaces are listed alongside the active one
+
+
+@pytest.mark.anyio
+async def test_space_command_rejects_invalid_name():
+    reply = await handle_command("u1", "space", "!!!")
+    assert "Invalid space name" in reply
+    assert get_space("u1") == "personal"

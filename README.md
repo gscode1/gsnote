@@ -86,11 +86,12 @@ Optional in-cluster whisper STT: set `whisper.enabled=true` and point `config.ST
 | A note or idea | Saved to your memory (classified + searchable) |
 | A question | Searches your notes and answers from them |
 | A voice note | Transcribed, then treated like text *(needs STT — see below)* |
-| `/work` or `/personal` | Switch space — notes stay separate |
-| `/space` | Show which space is active |
+| `/space <name>` | Switch to (or create) a named space |
+| `/space` | Show active space and your spaces |
+| `/work` or `/personal` | Space shortcuts |
 | Weekly digest buttons | Engaged / Dismiss / Snooze |
 
-Spaces keep work and personal notes apart. New notes and questions use the active space.
+Spaces keep notes apart. New notes and questions use the active space, and every reply ends with a `[space]` tag showing where it was saved or searched.
 
 ---
 
