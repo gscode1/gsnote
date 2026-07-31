@@ -129,10 +129,11 @@ async def run_digest(send_fn) -> dict:
     Keeping spaces separate avoids mixing work and personal open loops in one message.
     send_fn(digest: Digest) -> None (sync or async).
     """
-    from app.spaces import VALID_SPACES
+    from app.db import get_conn
 
+    rows = get_conn().execute("SELECT DISTINCT space FROM notes").fetchall()
     results = []
-    for space in sorted(VALID_SPACES):
+    for space in sorted(r["space"] for r in rows):
         results.append(await _send_digest_for_space(send_fn, space))
     sent_any = any(r["sent"] for r in results)
     return {"sent": sent_any, "spaces": results}

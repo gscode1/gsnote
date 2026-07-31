@@ -106,7 +106,7 @@ def test_budget_caps_candidate_count():
     get_settings.cache_clear()
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_run_digest_sends_and_logs_notification(monkeypatch):
     _insert_note("Open loop worth a nudge", importance=5, created_days_ago=10)
 
@@ -138,7 +138,7 @@ async def test_run_digest_sends_and_logs_notification(monkeypatch):
     assert row["user_response"] is None
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_run_digest_is_per_space(monkeypatch):
     _insert_note("work open loop", importance=5, created_days_ago=10, space="work")
     _insert_note("personal open loop", importance=5, created_days_ago=10, space="personal")
@@ -167,7 +167,7 @@ async def test_run_digest_is_per_space(monkeypatch):
     assert "personal open loop" in personal_msg and "work open loop" not in personal_msg
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_run_digest_does_not_resend_within_cooldown(monkeypatch):
     _insert_note("Open loop worth a nudge", importance=5, created_days_ago=10)
 

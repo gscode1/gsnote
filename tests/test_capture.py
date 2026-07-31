@@ -7,7 +7,7 @@ from app.agents import Classification
 from app.db import get_conn
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_capture_note_stores_everywhere(monkeypatch):
     async def fake_classify(content: str) -> Classification:
         return Classification(category="idea", importance=4, normalized_content=content)
@@ -32,7 +32,7 @@ async def test_capture_note_stores_everywhere(monkeypatch):
     assert vec_row is not None
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_capture_builds_temporal_and_semantic_edges(monkeypatch):
     async def fake_classify(content: str) -> Classification:
         return Classification(category="idea", importance=3, normalized_content=content)

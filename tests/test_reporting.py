@@ -52,7 +52,7 @@ def test_notes_in_window_filters_by_category():
     assert task_id not in ids
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_report_synthesizes_via_llm(monkeypatch):
     now = datetime.now(timezone.utc)
     _insert_raw_note("Idea: build a better note app", "idea", now.isoformat())
@@ -73,7 +73,7 @@ async def test_report_synthesizes_via_llm(monkeypatch):
     assert "idea" in summary.lower()
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_report_handles_empty_window():
     summary = await report("summarize last week")
     assert "No notes found" in summary
