@@ -8,6 +8,7 @@ os.environ.setdefault("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
 os.environ.setdefault("EMBEDDING_DIM", "384")
 os.environ.setdefault("DB_PATH", "./data/test_gsnote.db")
 os.environ.setdefault("LLM_API_KEY", "test-key")
+os.environ.setdefault("CHANNEL", "none")  # lifespan must not need a Telegram token
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 

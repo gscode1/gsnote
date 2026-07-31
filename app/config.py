@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     embedding_base_url: str = ""  # required when provider=api, e.g. http://ollama:11434/v1
     embedding_api_key: str = ""  # optional; many local servers need none
 
+    # --- HTTP API auth ---
+    # ponytail: fail closed — empty token disables the data routes entirely
+    api_token: str = ""
+
     # --- channel ---
     channel: str = "telegram"  # telegram | none
     telegram_bot_token: str = ""

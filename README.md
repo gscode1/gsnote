@@ -86,6 +86,7 @@ Useful optional vars:
 
 | Variable | Default | What it does |
 |---|---|---|
+| `API_TOKEN` | empty = HTTP data API off | Bearer token for `/capture`, `/search`, `/report`, `/export` (`Authorization: Bearer <token>`) |
 | `CLASSIFIER_MODEL` / `ANSWER_MODEL` | cheap / strong | Models for tagging notes vs answering |
 | `CHANNEL=none` | — | HTTP only (no Telegram) |
 | `RESURFACING_CRON` | `0 9 * * MON` | Weekly digest schedule |

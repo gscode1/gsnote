@@ -1,7 +1,8 @@
 import logging
+import secrets
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 from app.capture import capture_note
@@ -59,6 +60,15 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="gsnote", lifespan=lifespan)
 
 
+def require_api_token(authorization: str | None = Header(default=None)) -> None:
+    settings = get_settings()
+    if not settings.api_token:
+        raise HTTPException(status_code=503, detail="HTTP API disabled: set API_TOKEN to enable it")
+    expected = f"Bearer {settings.api_token}"
+    if authorization is None or not secrets.compare_digest(authorization, expected):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
 @app.get("/health")
 def health():
     get_conn()  # ensures DB connection is alive
@@ -71,7 +81,7 @@ class CaptureRequest(BaseModel):
     space: str = "personal"
 
 
-@app.post("/capture")
+@app.post("/capture", dependencies=[Depends(require_api_token)])
 async def capture_endpoint(req: CaptureRequest):
     return await capture_note(req.content, source=req.source, space=req.space)
 
@@ -80,7 +90,7 @@ class SearchResponse(BaseModel):
     notes: list[dict]
 
 
-@app.get("/search", response_model=SearchResponse)
+@app.get("/search", response_model=SearchResponse, dependencies=[Depends(require_api_token)])
 def search_endpoint(q: str, top_k: int | None = None, space: str | None = "personal"):
     return {"notes": search(q, top_k=top_k, space=space)}
 
@@ -91,6 +101,6 @@ class ReportRequest(BaseModel):
     space: str | None = "personal"
 
 
-@app.post("/report")
+@app.post("/report", dependencies=[Depends(require_api_token)])
 async def report_endpoint(req: ReportRequest):
     return {"summary": await report(req.query, category=req.category, space=req.space)}
