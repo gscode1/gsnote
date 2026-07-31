@@ -88,10 +88,9 @@ Optional in-cluster whisper STT: set `whisper.enabled=true` and point `config.ST
 | A voice note | Transcribed, then treated like text *(needs STT — see below)* |
 | `/space <name>` | Switch to (or create) a named space |
 | `/space` | Show active space and your spaces |
-| `/work` or `/personal` | Space shortcuts |
 | Weekly digest buttons | Engaged / Dismiss / Snooze |
 
-Spaces keep notes apart. New notes and questions use the active space, and every reply ends with a `[space]` tag showing where it was saved or searched.
+Spaces keep notes apart. You start in the `default` space; create your own with `/space <name>`. New notes and questions use the active space, and every reply ends with a `[space]` tag showing where it was saved or searched.
 
 ---
 

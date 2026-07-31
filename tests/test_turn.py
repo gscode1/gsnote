@@ -61,7 +61,7 @@ def _mock_classifier(monkeypatch):
 @pytest.mark.anyio
 async def test_space_switch_clears_history():
     _history_by_user["u1"] = ["prior turn"]
-    reply = await handle_command("u1", "work", "")
+    reply = await handle_command("u1", "space", "work")
     assert "work" in reply
     assert get_space("u1") == "work"
     assert "u1" not in _history_by_user
@@ -103,7 +103,7 @@ async def test_handle_message_runs_agent_and_replies(monkeypatch):
     with agent.override(model=FunctionModel(fn)):
         await handle_message(channel, "u1", "hello")
 
-    assert channel.sent == [("u1", "got it [personal]", False, None)]
+    assert channel.sent == [("u1", "got it [default]", False, None)]
     assert "u1" in _history_by_user
 
 
@@ -134,7 +134,7 @@ async def test_space_command_creates_and_switches():
 @pytest.mark.anyio
 async def test_space_command_lists_spaces():
     await capture.capture_note("a personal note", source="u1", space="personal")
-    await handle_command("u1", "work", "")
+    await handle_command("u1", "space", "work")
     reply = await handle_command("u1", "space", "")
     assert "Active space: work" in reply
     assert "personal" in reply  # used spaces are listed alongside the active one
@@ -144,4 +144,4 @@ async def test_space_command_lists_spaces():
 async def test_space_command_rejects_invalid_name():
     reply = await handle_command("u1", "space", "!!!")
     assert "Invalid space name" in reply
-    assert get_space("u1") == "personal"
+    assert get_space("u1") == "default"

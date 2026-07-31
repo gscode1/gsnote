@@ -57,7 +57,7 @@ class NoteDeps:
     """Per-request dependencies injected into the memory agent's tools."""
 
     user_id: str
-    space: str = "personal"  # active work/personal space for this user's turn
+    space: str = "default"  # active note space for this user's turn
 
 
 def _model(model_name: str) -> Model:

@@ -80,7 +80,7 @@ def health():
 class CaptureRequest(BaseModel):
     content: str
     source: str = "user"
-    space: str = "personal"
+    space: str = "default"
 
 
 @app.post("/capture", dependencies=[Depends(require_api_token)])
@@ -93,14 +93,14 @@ class SearchResponse(BaseModel):
 
 
 @app.get("/search", response_model=SearchResponse, dependencies=[Depends(require_api_token)])
-def search_endpoint(q: str, top_k: int | None = None, space: str | None = "personal"):
+def search_endpoint(q: str, top_k: int | None = None, space: str | None = "default"):
     return {"notes": search(q, top_k=top_k, space=space)}
 
 
 class ReportRequest(BaseModel):
     query: str
     category: str | None = None
-    space: str | None = "personal"
+    space: str | None = "default"
 
 
 @app.post("/report", dependencies=[Depends(require_api_token)])

@@ -9,7 +9,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from app.resurfacing import Digest, record_response
-from app.spaces import VALID_SPACES, get_space, list_spaces, set_space
+from app.spaces import get_space, list_spaces, set_space
 
 if TYPE_CHECKING:
     from app.channels import Channel
@@ -38,8 +38,6 @@ async def handle_message(channel: Channel, user_id: str, text: str) -> None:
 
 
 async def handle_command(user_id: str, command: str, args: str) -> str:
-    if command in VALID_SPACES:  # /work, /personal shortcuts
-        return _switch_space(user_id, command)
     if command == "space":
         if args:
             return _switch_space(user_id, args)
@@ -56,10 +54,9 @@ async def handle_command(user_id: str, command: str, args: str) -> str:
             "or send a voice message.\n\n"
             f"Spaces keep your notes apart (current: {get_space(user_id)}):\n"
             "• /space <name> — switch to (or create) a space\n"
-            "• /space — show active space and your spaces\n"
-            "• /work, /personal — shortcuts"
+            "• /space — show active space and your spaces"
         )
-    return "Unknown command. Try /space, /work, /personal."
+    return "Unknown command. Try /space."
 
 
 def _switch_space(user_id: str, name: str) -> str:

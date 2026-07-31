@@ -9,7 +9,7 @@ from app.db import cursor
 from app.embeddings import embed
 
 
-async def capture_note(content: str, source: str = "user", space: str = "personal") -> dict:
+async def capture_note(content: str, source: str = "user", space: str = "default") -> dict:
     classification = await classify_note(content)
 
     note_id = str(uuid.uuid4())

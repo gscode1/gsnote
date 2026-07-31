@@ -1,4 +1,4 @@
-"""Tests for work/personal space separation."""
+"""Tests for named note spaces."""
 import pytest
 
 from app import capture, spaces
@@ -16,7 +16,7 @@ def _mock_classifier(monkeypatch):
 
 
 def test_active_space_default_and_toggle():
-    assert spaces.get_space("u1") == "personal"
+    assert spaces.get_space("u1") == "default"
     spaces.set_space("u1", "work")
     assert spaces.get_space("u1") == "work"
     spaces.set_space("u1", "personal")

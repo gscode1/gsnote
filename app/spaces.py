@@ -8,8 +8,7 @@ from datetime import datetime, timezone
 
 from app.db import get_conn
 
-VALID_SPACES = {"personal", "work"}  # shortcut commands /work, /personal
-DEFAULT_SPACE = "personal"
+DEFAULT_SPACE = "default"
 
 _SPACE_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
 

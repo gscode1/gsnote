@@ -163,8 +163,8 @@ def _bump_access(conn: sqlite3.Connection, note_ids: list[str]) -> None:
     conn.commit()
 
 
-def search(query: str, top_k: int | None = None, space: str | None = "personal") -> list[dict]:
-    """Hybrid retrieval. `space` scopes results (work|personal); None searches across all spaces.
+def search(query: str, top_k: int | None = None, space: str | None = "default") -> list[dict]:
+    """Hybrid retrieval. `space` scopes results to one space; None searches across all spaces.
 
     All candidate generators scope by space when set; the final fetch still filters as a
     defensive check against cross-space leakage.

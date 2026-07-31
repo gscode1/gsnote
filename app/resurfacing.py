@@ -43,7 +43,7 @@ def score_candidates(space: str | None = None) -> list[dict]:
 
     score = w1*open_loop + w2*(staleness * importance) + w3*recurrence - suppressors
 
-    `space` scopes scoring to one space (work|personal); None scores across all spaces.
+    `space` scopes scoring to one space; None scores across all spaces.
     """
     conn = get_conn()
     settings = get_settings()

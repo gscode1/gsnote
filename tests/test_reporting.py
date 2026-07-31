@@ -12,8 +12,8 @@ def _insert_raw_note(content: str, category: str, created_at: str) -> str:
     note_id = str(uuid.uuid4())
     with cursor() as cur:
         cur.execute(
-            "INSERT INTO notes (id, content, category, importance, source, created_at, updated_at) "
-            "VALUES (?, ?, ?, 3, 'alice', ?, ?)",
+            "INSERT INTO notes (id, content, category, importance, source, space, created_at, updated_at) "
+            "VALUES (?, ?, ?, 3, 'alice', 'default', ?, ?)",
             (note_id, content, category, created_at, created_at),
         )
     return note_id

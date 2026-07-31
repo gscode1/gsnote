@@ -25,7 +25,7 @@ def parse_window_days(text: str, default_days: int = 7) -> int:
     return default_days
 
 
-def notes_in_window(days: int, category: str | None = None, space: str | None = "personal") -> list[dict]:
+def notes_in_window(days: int, category: str | None = None, space: str | None = "default") -> list[dict]:
     conn = get_conn()
     sql = (
         "SELECT * FROM notes WHERE deleted_at IS NULL "
@@ -43,7 +43,7 @@ def notes_in_window(days: int, category: str | None = None, space: str | None = 
     return [dict(r) for r in rows]
 
 
-async def report(query: str, category: str | None = None, space: str | None = "personal") -> str:
+async def report(query: str, category: str | None = None, space: str | None = "default") -> str:
     days = parse_window_days(query)
     notes = notes_in_window(days, category, space=space)
 
