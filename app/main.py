@@ -1,14 +1,16 @@
+import json
 import logging
 import secrets
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from pydantic import BaseModel
 
 from app.capture import capture_note
 from app.channels import Channel
 from app.config import get_settings
-from app.db import get_conn, run_migrations
+from app.db import cursor, get_conn, run_migrations
 from app.reporting import report
 from app.retrieval import search
 from app.scheduler import start_scheduler, stop_scheduler
@@ -104,3 +106,23 @@ class ReportRequest(BaseModel):
 @app.post("/report", dependencies=[Depends(require_api_token)])
 async def report_endpoint(req: ReportRequest):
     return {"summary": await report(req.query, category=req.category, space=req.space)}
+
+
+@app.get("/export", dependencies=[Depends(require_api_token)])
+def export_endpoint():
+    with cursor() as cur:
+        rows = cur.execute(
+            "SELECT id, content, category, importance, source, space,"
+            " created_at, updated_at, last_accessed_at, access_count"
+            " FROM notes WHERE deleted_at IS NULL ORDER BY created_at"
+        ).fetchall()
+    payload = {
+        "version": 1,
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "notes": [dict(row) for row in rows],
+    }
+    return Response(
+        content=json.dumps(payload, indent=2, ensure_ascii=False),
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="gsnote-export.json"'},
+    )

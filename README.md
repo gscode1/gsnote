@@ -96,6 +96,18 @@ Full list: [`.env.example`](.env.example).
 
 ---
 
+## Export
+
+Your notes are yours. Download everything as JSON (needs `API_TOKEN`):
+
+```bash
+curl -H "Authorization: Bearer $API_TOKEN" http://localhost:8000/export -o gsnote-export.json
+```
+
+The file is `{"version": 1, "exported_at": ..., "notes": [...]}` — each note carries its content, category, source, space, timestamps, and access stats.
+
+---
+
 ## Privacy
 
 Notes live in local SQLite. When the bot reasons, content goes to **your** LLM provider. You pick the key and endpoint.
