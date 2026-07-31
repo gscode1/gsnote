@@ -34,9 +34,23 @@ Then:
 docker compose up --build
 ```
 
-Open your bot in Telegram and send a message. Done.
+### Verify it works
 
-### Without Docker
+Open your bot in Telegram. You should see an exchange like:
+
+> **You:** I told the landlord I'd fix the leaky tap by Friday
+>
+> **Bot:** Noted — saved that.
+>
+> **You:** what did I promise the landlord?
+>
+> **Bot:** You promised to fix the leaky tap by Friday.
+
+If the bot answers your question from the note you just sent, everything is wired up. No reply? Check `docker compose logs` — the bot refuses to start with a clear error if a required variable is missing.
+
+### Other ways to run (optional)
+
+Without Docker:
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
@@ -45,7 +59,7 @@ cp .env.example .env   # same required vars
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-### Kubernetes (Helm)
+Kubernetes (Helm):
 
 ```bash
 cp charts/gsnote/values.yaml my-secrets.yaml   # fill in image + secrets (gitignored)
