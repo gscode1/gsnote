@@ -8,7 +8,7 @@ from pydantic_ai import ModelMessage, ModelResponse, TextPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from app import capture
-from app.agents import Classification, memory_agent
+from app.capture import Classification
 from app.channels import Channel
 from app.db import cursor, get_conn
 from app.resurfacing import Digest
@@ -19,6 +19,7 @@ from app.turn import (
     handle_message,
     handle_response,
     make_digest_sender,
+    memory_agent,
 )
 
 

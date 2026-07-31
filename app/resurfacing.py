@@ -1,13 +1,39 @@
-"""Proactive resurfacing — the soul (PRD §8). Weekly digest, conservative, dedup-aware."""
+"""Proactive resurfacing — the soul (PRD §8). Weekly digest, conservative, dedup-aware.
+
+The nudge agent lives here: phrasing the digest is resurfacing's own job.
+"""
 import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 
-from app.agents import phrase_nudge
+from pydantic_ai import Agent
+
 from app.config import get_settings
 from app.db import cursor, get_conn
+from app.llm import build_model
 from app.spaces import scope_filter
+
+
+@lru_cache
+def nudge_agent() -> Agent:
+    settings = get_settings()
+    return Agent(
+        build_model(settings.answer_model),
+        output_type=str,
+        instructions=(
+            "You phrase a short, friendly proactive nudge message reminding the user about "
+            "notes they captured and haven't revisited. One or two sentences, warm but brief. "
+            "Reference the actual content given, don't be generic."
+        ),
+    )
+
+
+async def phrase_nudge(notes: list[dict]) -> str:
+    context = "\n".join(f"- {n['content']}" for n in notes)
+    result = await nudge_agent().run(f"Notes to nudge about:\n{context}")
+    return result.output
 
 
 @dataclass(frozen=True)
@@ -136,8 +162,6 @@ async def run_digest(send_fn) -> dict:
     open loops into another's message.
     send_fn(digest: Digest) -> None (sync or async).
     """
-    from app.db import get_conn
-
     rows = get_conn().execute("SELECT DISTINCT source, space FROM notes").fetchall()
     results = []
     for r in sorted(rows, key=lambda r: (r["source"], r["space"])):

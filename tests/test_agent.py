@@ -8,8 +8,9 @@ from pydantic_ai import ModelMessage, ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from app import capture
-from app.agents import Classification, NoteDeps, memory_agent
+from app.capture import Classification
 from app.db import get_conn
+from app.turn import NoteDeps, memory_agent
 
 
 @pytest.fixture(autouse=True)

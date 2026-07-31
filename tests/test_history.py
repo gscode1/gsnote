@@ -8,7 +8,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
-from app.agents import trim_history
+from app.turn import trim_history
 
 
 def _user_turn(text: str) -> list:

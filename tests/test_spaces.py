@@ -2,7 +2,7 @@
 import pytest
 
 from app import capture, spaces
-from app.agents import Classification
+from app.capture import Classification
 from app.retrieval import search
 from app.reporting import notes_in_window
 

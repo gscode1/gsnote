@@ -1,9 +1,30 @@
-"""Temporal / reporting queries (PRD §6 temporal, M3): native SQL date window + LLM synthesis."""
-import re
+"""Temporal / reporting queries (PRD §6 temporal, M3): native SQL date window + LLM synthesis.
 
-from app.agents import answer_agent
+The answer agent lives here: synthesizing a report from notes is reporting's own job.
+"""
+import re
+from functools import lru_cache
+
+from pydantic_ai import Agent
+
+from app.config import get_settings
 from app.db import get_conn
+from app.llm import build_model
 from app.spaces import scope_filter
+
+
+@lru_cache
+def answer_agent() -> Agent:
+    settings = get_settings()
+    return Agent(
+        build_model(settings.answer_model),
+        output_type=str,
+        instructions=(
+            "You answer questions about the user's personal notes using only the provided "
+            "context notes. Be concise. If the notes don't contain the answer, say so plainly. "
+            "Never fabricate notes that weren't given to you."
+        ),
+    )
 
 _WINDOW_PATTERNS = [
     (re.compile(r"last week", re.IGNORECASE), 7),
