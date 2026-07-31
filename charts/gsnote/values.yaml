@@ -11,8 +11,10 @@ config:
   LLM_BASE_URL: https://openrouter.ai/api/v1
   CLASSIFIER_MODEL: openai/gpt-4o-mini
   ANSWER_MODEL: openai/gpt-4o
+  EMBEDDING_PROVIDER: local # local (in-process) | api (OpenAI-compatible endpoint)
   EMBEDDING_MODEL: BAAI/bge-large-en-v1.5
   EMBEDDING_DIM: "1024"
+  # EMBEDDING_BASE_URL: http://ollama:11434/v1  # with EMBEDDING_PROVIDER=api
   CHANNEL: telegram
   STT_ENABLED: "false"
   # STT_BASE_URL: http://whisper:9000/v1  # in-cluster whisper, see whisper.enabled
@@ -34,9 +36,10 @@ secrets:
   S3_ACCESS_KEY_ID: ""
   S3_SECRET_ACCESS_KEY: ""
   STT_API_KEY: "" # optional
+  EMBEDDING_API_KEY: "" # optional; only with EMBEDDING_PROVIDER=api
 
 persistence:
-  size: 2Gi
+  size: 4Gi # SQLite DB + fastembed model cache (~1.3GB, FASTEMBED_CACHE_PATH=/data/fastembed)
   # storageClassName: local-path
 
 resources:

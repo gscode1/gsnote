@@ -28,8 +28,19 @@ COPY migrations ./migrations
 
 RUN pip install --no-cache-dir -e .
 
-# Bake the embedding model into the image so cold start doesn't need a download (Risk §14.3)
-RUN python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BAAI/bge-large-en-v1.5')"
+# By default the embedding model is pulled at first use, not baked into the image.
+# Bake runs with the default cache path on purpose: if it used FASTEMBED_CACHE_PATH below,
+# a runtime volume mounted over /data would shadow the baked model and force a re-download.
+# Set --build-arg BAKE_EMBED_MODEL=true for air-gapped/no-download cold starts (adds ~1.3GB).
+ARG BAKE_EMBED_MODEL=false
+ARG EMBEDDING_MODEL=BAAI/bge-large-en-v1.5
+RUN if [ "$BAKE_EMBED_MODEL" = "true" ]; then \
+      python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='$EMBEDDING_MODEL')"; \
+    fi
+
+# Runtime downloads land on the /data volume (mounted by compose and Helm), so restarts
+# don't re-pull. Without a /data mount the cache is ephemeral.
+ENV FASTEMBED_CACHE_PATH=/data/fastembed
 
 COPY litestream.yml /etc/litestream.yml
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh

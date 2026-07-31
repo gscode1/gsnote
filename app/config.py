@@ -17,8 +17,13 @@ class Settings(BaseSettings):
     answer_model: str = "openai/gpt-4o"
 
     # --- embeddings ---
+    # local = in-process fastembed/ONNX; api = any OpenAI-compatible /embeddings endpoint
+    # (Ollama, TEI, vLLM, LiteLLM, OpenAI). "local model over HTTP" is just api + a localhost base_url.
+    embedding_provider: str = "local"  # local | api
     embedding_model: str = "BAAI/bge-large-en-v1.5"
     embedding_dim: int = 1024
+    embedding_base_url: str = ""  # required when provider=api, e.g. http://ollama:11434/v1
+    embedding_api_key: str = ""  # optional; many local servers need none
 
     # --- channel ---
     channel: str = "telegram"  # telegram | none
