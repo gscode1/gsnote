@@ -4,7 +4,7 @@ services:
       context: .
       args:
         TARGETARCH: ${TARGETARCH:-amd64}
-    image: gsnote:local
+    image: ghcr.io/gscode1/gsnote:latest
     env_file:
       - .env
     environment:
