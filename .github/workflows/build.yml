@@ -5,6 +5,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  packages: write  # push to GHCR
+
 env:
   IMAGE: ghcr.io/${{ github.repository }}
 
