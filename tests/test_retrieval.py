@@ -1,7 +1,7 @@
 import pytest
 
 from app import capture
-from app.agents import Classification
+from app.capture import Classification
 from app.retrieval import search
 
 

@@ -29,8 +29,9 @@ from pydantic_evals import Case, Dataset  # noqa: E402
 from pydantic_evals.evaluators import Evaluator, EvaluatorContext, LLMJudge  # noqa: E402
 from pydantic_evals.evaluators.llm_as_a_judge import set_default_judge_model  # noqa: E402
 
-from app.agents import NoteDeps, _model, memory_agent  # noqa: E402
 from app.config import get_settings  # noqa: E402
+from app.llm import build_model  # noqa: E402
+from app.turn import NoteDeps, memory_agent  # noqa: E402
 from eval.run_eval import EVAL_SET_PATH, seed  # noqa: E402
 
 
@@ -117,7 +118,7 @@ async def main() -> None:
         sys.exit(1)
 
     # Judge with the configured provider (we run on OpenRouter, not the OpenAI default).
-    set_default_judge_model(_model(get_settings().answer_model))
+    set_default_judge_model(build_model(get_settings().answer_model))
 
     eval_set = json.loads(EVAL_SET_PATH.read_text())
 

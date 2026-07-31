@@ -95,7 +95,7 @@ class TelegramChannel(Channel):
         if not self._authorized(user.id):
             await message.reply_text("Sorry, you're not authorized to use this bot.")
             return
-        # "/work foo bar" -> command="work", args="foo bar"
+        # "/space foo bar" -> command="space", args="foo bar"
         parts = message.text[1:].split(maxsplit=1)
         command = parts[0].split("@")[0].lower()  # strip optional @botname
         args = parts[1] if len(parts) > 1 else ""

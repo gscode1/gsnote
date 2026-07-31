@@ -8,7 +8,7 @@ from pydantic_ai import ModelMessage, ModelResponse, TextPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from app import capture
-from app.agents import Classification, memory_agent
+from app.capture import Classification
 from app.channels import Channel
 from app.db import cursor, get_conn
 from app.resurfacing import Digest
@@ -19,6 +19,7 @@ from app.turn import (
     handle_message,
     handle_response,
     make_digest_sender,
+    memory_agent,
 )
 
 
@@ -61,7 +62,7 @@ def _mock_classifier(monkeypatch):
 @pytest.mark.anyio
 async def test_space_switch_clears_history():
     _history_by_user["u1"] = ["prior turn"]
-    reply = await handle_command("u1", "work", "")
+    reply = await handle_command("u1", "space", "work")
     assert "work" in reply
     assert get_space("u1") == "work"
     assert "u1" not in _history_by_user
@@ -84,11 +85,12 @@ async def test_handle_response_records_against_notification_id():
 
 @pytest.mark.anyio
 async def test_digest_sender_pushes_buttons_with_notification_id():
-    channel = FakeChannel(recipients=["42"])
+    channel = FakeChannel(recipients=["42", "43"])
     send_fn = make_digest_sender(channel)
-    digest = Digest(message="nudge", notification_id="nid-1")
+    digest = Digest(message="nudge", notification_id="nid-1", user_id="42")
     await send_fn(digest)
 
+    # Targeted to the digest's owner only, not broadcast to all recipients.
     assert channel.sent == [("42", "nudge", True, "nid-1")]
 
 
@@ -103,7 +105,7 @@ async def test_handle_message_runs_agent_and_replies(monkeypatch):
     with agent.override(model=FunctionModel(fn)):
         await handle_message(channel, "u1", "hello")
 
-    assert channel.sent == [("u1", "got it [personal]", False, None)]
+    assert channel.sent == [("u1", "got it [default]", False, None)]
     assert "u1" in _history_by_user
 
 
@@ -134,7 +136,7 @@ async def test_space_command_creates_and_switches():
 @pytest.mark.anyio
 async def test_space_command_lists_spaces():
     await capture.capture_note("a personal note", source="u1", space="personal")
-    await handle_command("u1", "work", "")
+    await handle_command("u1", "space", "work")
     reply = await handle_command("u1", "space", "")
     assert "Active space: work" in reply
     assert "personal" in reply  # used spaces are listed alongside the active one
@@ -144,4 +146,4 @@ async def test_space_command_lists_spaces():
 async def test_space_command_rejects_invalid_name():
     reply = await handle_command("u1", "space", "!!!")
     assert "Invalid space name" in reply
-    assert get_space("u1") == "personal"
+    assert get_space("u1") == "default"

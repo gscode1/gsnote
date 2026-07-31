@@ -43,7 +43,7 @@ class Channel(ABC):
         """
 
     def on_command(self, handler: CommandHandler) -> None:
-        """Register the handler invoked for slash commands (e.g. /work, /personal).
+        """Register the handler invoked for slash commands (e.g. /space).
 
         Default no-op; adapters that support commands override this.
         """

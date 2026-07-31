@@ -3,7 +3,7 @@ import json
 import pytest
 
 from app import capture
-from app.agents import Classification
+from app.capture import Classification
 from app.db import get_conn
 
 

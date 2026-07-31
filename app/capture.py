@@ -1,15 +1,54 @@
-"""Capture pipeline (PRD §5): classify -> store -> embed -> graph edges -> ack."""
+"""Capture pipeline (PRD §5): classify -> store -> embed -> graph edges -> ack.
+
+Classification lives here: it is the capture pipeline's own first step.
+"""
 import json
 import uuid
 from datetime import datetime, timezone
+from functools import lru_cache
+
+from pydantic import BaseModel, Field
+from pydantic_ai import Agent
 
 from app import graph
-from app.agents import classify_note
+from app.config import get_settings
 from app.db import cursor
 from app.embeddings import embed
+from app.llm import build_model
+
+VALID_CATEGORIES = {"idea", "intention", "meeting", "task", "note"}
 
 
-async def capture_note(content: str, source: str = "user", space: str = "personal") -> dict:
+class Classification(BaseModel):
+    category: str = Field(description="One of: idea, intention, meeting, task, note")
+    importance: int = Field(ge=1, le=5, description="1 (trivial) to 5 (critical)")
+    normalized_content: str = Field(description="The note content, lightly cleaned up")
+
+
+@lru_cache
+def classifier_agent() -> Agent:
+    settings = get_settings()
+    return Agent(
+        build_model(settings.classifier_model),
+        output_type=Classification,
+        instructions=(
+            "You classify short personal notes. Assign a category from "
+            "{idea, intention, meeting, task, note} and an importance 1-5. "
+            "Lightly clean up the content (fix obvious typos) but preserve meaning and language. "
+            "Do not invent information."
+        ),
+    )
+
+
+async def classify_note(content: str) -> Classification:
+    result = await classifier_agent().run(content)
+    output = result.output
+    if output.category not in VALID_CATEGORIES:
+        output.category = "note"
+    return output
+
+
+async def capture_note(content: str, source: str = "user", space: str = "default") -> dict:
     classification = await classify_note(content)
 
     note_id = str(uuid.uuid4())

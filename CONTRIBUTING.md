@@ -25,7 +25,7 @@ Create `app/channels/<name>.py` with a class implementing:
 | `on_message(handler)` | yes | Call `handler(user_id: str, text: str)` for every inbound text message. This is the entry point into the whole note/question pipeline — don't duplicate that logic in the adapter. |
 | `start()` / `stop()` | yes | Start/stop receiving (polling loop or webhook server). `start()` is awaited during app startup, `stop()` on shutdown. |
 | `recipients()` | no | Who gets proactive digests. Default `[]` = no digests. |
-| `on_command(handler)` | no | Slash commands like `/work`. `handler(user_id, command, args) -> str` returns the reply text. Default no-op. |
+| `on_command(handler)` | no | Slash commands like `/space`. `handler(user_id, command, args) -> str` returns the reply text. Default no-op. |
 | `on_response(handler)` | no | Nudge button responses: `handler(user_id, response, notification_id)`. Default no-op. |
 
 Rules of thumb:

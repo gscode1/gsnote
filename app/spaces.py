@@ -8,8 +8,7 @@ from datetime import datetime, timezone
 
 from app.db import get_conn
 
-VALID_SPACES = {"personal", "work"}  # shortcut commands /work, /personal
-DEFAULT_SPACE = "personal"
+DEFAULT_SPACE = "default"
 
 _SPACE_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
 
@@ -22,9 +21,27 @@ def normalize_space(name: str) -> str:
     return name
 
 
+def scope_filter(owner: str | None = None, space: str | None = None, alias: str = "") -> tuple[str, list]:
+    """The one authoritative note read scope: owner (notes.source) + space.
+
+    Every note read path applies this. owner=None/space=None means unscoped —
+    reserved for admin surfaces (the token-protected HTTP API and export).
+    """
+    col = f"{alias}." if alias else ""
+    sql, params = "", []
+    if owner is not None:
+        sql += f" AND {col}source = ?"
+        params.append(owner)
+    if space is not None:
+        sql += f" AND {col}space = ?"
+        params.append(space)
+    return sql, params
+
 def list_spaces(user_id: str) -> list[str]:
     """Spaces the user has notes in, plus their active one."""
-    rows = get_conn().execute("SELECT DISTINCT space FROM notes").fetchall()
+    rows = get_conn().execute(
+        "SELECT DISTINCT space FROM notes WHERE source = ?", (user_id,)
+    ).fetchall()
     return sorted({r["space"] for r in rows} | {get_space(user_id)})
 
 
