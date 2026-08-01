@@ -15,6 +15,7 @@ from app.config import get_settings
 from app.db import cursor
 from app.embeddings import embed
 from app.llm import build_model
+from app.prompts import CLASSIFIER, prompt
 
 VALID_CATEGORIES = {"idea", "intention", "meeting", "task", "note"}
 
@@ -31,12 +32,10 @@ def classifier_agent() -> Agent:
     return Agent(
         build_model(settings.classifier_model),
         output_type=Classification,
-        instructions=(
-            "You classify short personal notes. Assign a category from "
-            "{idea, intention, meeting, task, note} and an importance 1-5. "
-            "Lightly clean up the content (fix obvious typos) but preserve meaning and language. "
-            "Do not invent information."
-        ),
+        # Callable so data/prompts/classifier.md overrides are re-read each run.
+        # NOTE: this prompt backs structured Classification output — an override must
+        # still demand category (idea|intention|meeting|task|note) + importance 1-5.
+        instructions=lambda: prompt("classifier", CLASSIFIER),
     )
 
 

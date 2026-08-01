@@ -13,6 +13,7 @@ from pydantic_ai import Agent
 from app.config import get_settings
 from app.db import cursor, get_conn
 from app.llm import build_model
+from app.prompts import NUDGE, prompt
 from app.spaces import scope_filter
 
 
@@ -22,11 +23,8 @@ def nudge_agent() -> Agent:
     return Agent(
         build_model(settings.answer_model),
         output_type=str,
-        instructions=(
-            "You phrase a short, friendly proactive nudge message reminding the user about "
-            "notes they captured and haven't revisited. One or two sentences, warm but brief. "
-            "Reference the actual content given, don't be generic."
-        ),
+        # Callable so data/prompts/nudge.md overrides are re-read each run.
+        instructions=lambda: prompt("nudge", NUDGE),
     )
 
 
