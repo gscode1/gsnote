@@ -6,7 +6,18 @@ A personal memory bot for Telegram. Send notes, ask questions later, get a weekl
 
 Self-hosted · single-user · your own LLM key · Apache-2.0
 
----
+## See it in action
+
+<table>
+  <tr>
+    <td width="50%"><img src="assets/telegram-chat-save.png" alt="Saving a note: the bot confirms what was stored and its category"></td>
+    <td width="50%"><img src="assets/telegram-chat-ask.png" alt="Asking a question weeks later: the bot answers from your notes with the dates they were saved"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Save anything, zero structure needed</b></td>
+    <td align="center"><b>Ask later — it remembers, with dates</b></td>
+  </tr>
+</table>
 
 ## What you need
 
@@ -116,19 +127,6 @@ Useful optional vars:
 | `STT_ENABLED` / `STT_BASE_URL` | off | Voice notes via an OpenAI-compatible STT endpoint |
 
 Full list: [`.env.example`](.env.example).
-
-### Custom prompts
-
-Drop a file into `data/prompts/` (next to the DB, inside the persisted volume) to override an agent's persona — it is re-read on every message, no restart needed:
-
-| File | Agent |
-|---|---|
-| `memory.md` | Chat assistant (save/search/list behavior) |
-| `classifier.md` | Note tagging — keep the `{idea, intention, meeting, task, note}` + importance 1-5 contract or classification breaks |
-| `reporting.md` | Report/answer synthesis |
-| `nudge.md` | Weekly digest phrasing |
-
-Missing or empty files fall back to the built-in defaults.
 
 ---
 
