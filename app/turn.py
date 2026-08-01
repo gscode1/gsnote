@@ -19,6 +19,7 @@ from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
 from app.capture import capture_note
 from app.config import get_settings
 from app.llm import build_model
+from app.prompts import MEMORY, prompt
 from app.reporting import notes_in_window
 from app.resurfacing import Digest, record_response
 from app.retrieval import search
@@ -84,19 +85,8 @@ def memory_agent() -> Agent[NoteDeps, str]:
         # Trim each model request to recent turns on a clean boundary, so the context
         # window stays bounded regardless of how long the conversation runs.
         capabilities=[ProcessHistory(lambda msgs: trim_history(msgs))],
-        instructions=(
-            "You are the user's personal memory assistant. You have tools to store and query "
-            "the user's notes. Decide from each message what to do:\n"
-            "- If the user is recording something new (a thought, idea, task, plan, reminder), "
-            "call save_note.\n"
-            "- If the user asks a question, or asks you to check / look up / list / print / recall "
-            "what they saved, call search_notes (topical) or list_recent_notes (time-window or "
-            "'everything I saved').\n"
-            "ALWAYS use your tools — never claim you lack access to memory or tools. You may call "
-            "tools more than once. Answer concisely based on what the tools return; never fabricate notes.\n"
-            "After saving a note, confirm back to the user the exact text that was stored (the tool "
-            "reports it) and its category, so they can verify what was recorded."
-        ),
+        # Callable so data/prompts/memory.md overrides are re-read each run.
+        instructions=lambda: prompt("memory", MEMORY),
     )
 
     @agent.tool

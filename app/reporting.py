@@ -10,6 +10,7 @@ from pydantic_ai import Agent
 from app.config import get_settings
 from app.db import get_conn
 from app.llm import build_model
+from app.prompts import REPORTING, prompt
 from app.spaces import scope_filter
 
 
@@ -19,11 +20,8 @@ def answer_agent() -> Agent:
     return Agent(
         build_model(settings.answer_model),
         output_type=str,
-        instructions=(
-            "You answer questions about the user's personal notes using only the provided "
-            "context notes. Be concise. If the notes don't contain the answer, say so plainly. "
-            "Never fabricate notes that weren't given to you."
-        ),
+        # Callable so data/prompts/reporting.md overrides are re-read each run.
+        instructions=lambda: prompt("reporting", REPORTING),
     )
 
 _WINDOW_PATTERNS = [

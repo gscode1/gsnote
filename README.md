@@ -117,6 +117,19 @@ Useful optional vars:
 
 Full list: [`.env.example`](.env.example).
 
+### Custom prompts
+
+Drop a file into `data/prompts/` (next to the DB, inside the persisted volume) to override an agent's persona — it is re-read on every message, no restart needed:
+
+| File | Agent |
+|---|---|
+| `memory.md` | Chat assistant (save/search/list behavior) |
+| `classifier.md` | Note tagging — keep the `{idea, intention, meeting, task, note}` + importance 1-5 contract or classification breaks |
+| `reporting.md` | Report/answer synthesis |
+| `nudge.md` | Weekly digest phrasing |
+
+Missing or empty files fall back to the built-in defaults.
+
 ---
 
 ## CLI
