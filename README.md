@@ -10,14 +10,25 @@ Self-hosted · single-user · your own LLM key · Apache-2.0
 
 <table>
   <tr>
-    <td width="50%"><img src="assets/telegram-chat-save.png" alt="Saving a note: the bot confirms what was stored and its category"></td>
-    <td width="50%"><img src="assets/telegram-chat-ask.png" alt="Asking a question weeks later: the bot answers from your notes with the dates they were saved"></td>
+    <td align="center"><img src="assets/telegram-chat-save.png" width="320" alt="Saving a note: the bot confirms what was stored and its category"></td>
+    <td align="center"><img src="assets/telegram-chat-ask.png" width="320" alt="Asking a question weeks later: the bot answers from your notes with the dates they were saved"></td>
   </tr>
   <tr>
     <td align="center"><b>Save anything, zero structure needed</b></td>
     <td align="center"><b>Ask later — it remembers, with dates</b></td>
   </tr>
 </table>
+
+## How the memory works
+
+Not a dumb note pile — every note is indexed four ways in local SQLite, and a hybrid engine fuses them when you ask:
+
+- **Vector search** — each note is embedded (`bge-large-en`, runs locally, no API calls) and stored in a [sqlite-vec](https://github.com/asg017/sqlite-vec) index, so "that show Marco mentioned" finds "The Bear" even with zero shared words.
+- **Keyword search** — SQLite FTS5 with BM25 ranking, for the exact-string cases (names, error messages, commands).
+- **Knowledge graph** — notes link to each other automatically: temporal edges connect notes captured close in time, semantic edges connect notes with similar embeddings. One memory pulls up its neighborhood.
+- **Recency + intent-aware fusion** — a cheap intent detector classifies your question (`GENERAL` vs `WHEN`), then Reciprocal Rank Fusion combines all candidate lists with per-intent weights. Time questions lean on dates, topic questions lean on meaning. Note importance and past access stats nudge the final ranking.
+
+Every answer cites when each note was saved, so "what did we decide last month?" gets a dated, verifiable answer — all from a single SQLite file you own and can export.
 
 ## What you need
 
