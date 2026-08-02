@@ -20,6 +20,7 @@ from app.spaces import get_timezone, normalize_timezone
 logger = logging.getLogger(__name__)
 
 KINDS = {"once", "daily", "weekly"}
+WINDOW_MODES = {"rolling_days", "rolling_hours", "previous_local_day"}
 DEFAULT_LOCAL_TIME = "08:00"
 DEFAULT_TIMEZONE = "UTC"
 CLAIM_MINUTES = 10
@@ -46,6 +47,29 @@ def normalize_local_time(value: str) -> str:
     if hour > 23 or minute > 59:
         raise ValueError("Time must use 24-hour HH:MM format, for example 21:00")
     return f"{hour:02d}:{minute:02d}"
+
+
+def normalize_window(
+    window_days: int | None,
+    window_mode: str | None = None,
+    window_value: int | None = None,
+) -> tuple[str | None, int | None]:
+    """Validate a query window while preserving the legacy window_days field."""
+    if window_mode is None:
+        return ("rolling_days", window_days) if window_days is not None else (None, None)
+    if window_mode not in WINDOW_MODES:
+        raise ValueError(f"window_mode must be one of: {', '.join(sorted(WINDOW_MODES))}")
+    if window_mode == "rolling_days":
+        if window_days is None or window_days < 1:
+            raise ValueError("rolling_days requires window_days >= 1")
+        return window_mode, window_days
+    if window_mode == "rolling_hours":
+        if window_value is None or window_value < 1:
+            raise ValueError("rolling_hours requires window_value >= 1")
+        return window_mode, window_value
+    if window_value is not None:
+        raise ValueError("previous_local_day does not accept window_value")
+    return window_mode, None
 
 
 def _localize(naive: datetime, tz: ZoneInfo) -> datetime:
@@ -118,10 +142,13 @@ def create_reminder(
     category: str | None = None,
     local_time: str = DEFAULT_LOCAL_TIME,
     tz_name: str | None = None,
+    window_mode: str | None = None,
+    window_value: int | None = None,
 ) -> str:
     now = _utc()
     tz_name = normalize_timezone(tz_name or get_timezone(user_id) or DEFAULT_TIMEZONE)
     local_time = normalize_local_time(local_time)
+    window_mode, window_value = normalize_window(window_days, window_mode, window_value)
     next_run_at = compute_next_run_at(
         kind, local_time, tz_name, weekday=weekday, fire_date=fire_date, ref_utc=now
     )
@@ -131,12 +158,14 @@ def create_reminder(
             """
             INSERT INTO reminders
               (id, user_id, space, message, kind, weekday, fire_date,
-               window_days, category, local_time, timezone, next_run_at, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               window_days, category, window_mode, window_value, local_time,
+               timezone, next_run_at, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 reminder_id, user_id, space, message, kind, weekday, fire_date,
-                window_days, category, local_time, tz_name, next_run_at, _iso(now),
+                window_days, category, window_mode, window_value, local_time,
+                tz_name, next_run_at, _iso(now),
             ),
         )
     return reminder_id
@@ -157,6 +186,43 @@ def cancel_reminder(user_id: str, reminder_id: str) -> bool:
             (_iso(datetime.now(timezone.utc)), reminder_id, user_id),
         )
         return cur.rowcount == 1
+
+
+def _note_utc(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return _utc(parsed)
+
+
+def _query_notes(reminder: dict, now: datetime) -> list[dict] | None:
+    """Return matching notes, or None for a plain message reminder."""
+    mode = reminder.get("window_mode")
+    if mode is None and reminder.get("window_days") is not None:
+        mode = "rolling_days"
+    if mode is None:
+        return None
+
+    if mode == "rolling_days":
+        return notes_in_window(
+            reminder["window_days"], reminder["category"],
+            space=reminder["space"], owner=reminder["user_id"],
+        )
+
+    rows = get_conn().execute(
+        "SELECT * FROM notes WHERE deleted_at IS NULL AND source = ? AND space = ? "
+        "ORDER BY created_at DESC",
+        (reminder["user_id"], reminder["space"]),
+    ).fetchall()
+    tz = ZoneInfo(reminder["timezone"])
+    if mode == "rolling_hours":
+        cutoff = now - timedelta(hours=reminder["window_value"])
+        return [dict(row) for row in rows if _note_utc(row["created_at"]) >= cutoff]
+    if mode == "previous_local_day":
+        yesterday = now.astimezone(tz).date() - timedelta(days=1)
+        return [
+            dict(row) for row in rows
+            if _note_utc(row["created_at"]).astimezone(tz).date() == yesterday
+        ]
+    raise ValueError(f"Unknown window mode: {mode}")
 
 
 def _claim(reminder_id: str, now: datetime) -> str | None:
@@ -227,11 +293,8 @@ def _complete(
 async def _fire(send_fn, reminder: dict, token: str, now: datetime) -> dict:
     message = f"⏰ {reminder['message']}"
     note_ids: list[str] = []
-    if reminder["window_days"] is not None:
-        notes = notes_in_window(
-            reminder["window_days"], reminder["category"],
-            space=reminder["space"], owner=reminder["user_id"],
-        )
+    if reminder.get("window_mode") is not None or reminder.get("window_days") is not None:
+        notes = _query_notes(reminder, now)
         if not notes:
             _complete(reminder, token, now, note_ids=[])
             return {"id": reminder["id"], "sent": False, "reason": "no notes in window"}

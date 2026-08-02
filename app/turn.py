@@ -174,6 +174,8 @@ def memory_agent() -> Agent[NoteDeps, str]:
         category: str | None = None,
         local_time: str | None = None,
         timezone_name: str | None = None,
+        window_mode: str | None = None,
+        window_value: int | None = None,
     ) -> str:
         """Schedule a reminder at a local wall-clock time.
 
@@ -185,6 +187,9 @@ def memory_agent() -> Agent[NoteDeps, str]:
             window_days: If set, attach the user's notes from the last N days.
             local_time: Optional 24-hour HH:MM time, e.g. 21:00. Defaults to 08:00.
             timezone_name: Optional IANA timezone override; otherwise the user's setting.
+            window_mode: previous_local_day for "yesterday", rolling_hours for last N hours,
+                or rolling_days for the existing last-N-days behavior.
+            window_value: Number of hours for rolling_hours; not used for other modes.
             category: Optional filter — one of idea, intention, meeting, task, note.
         """
         if not message.strip():
@@ -193,6 +198,12 @@ def memory_agent() -> Agent[NoteDeps, str]:
             raise ModelRetry("kind must be one of: once, daily, weekly")
         if window_days is not None and window_days < 1:
             raise ModelRetry("window_days must be at least 1.")
+        try:
+            window_mode, window_value = reminders.normalize_window(
+                window_days, window_mode, window_value
+            )
+        except ValueError as e:
+            raise ModelRetry(str(e))
         if kind == "weekly" and (weekday is None or not 0 <= weekday <= 6):
             raise ModelRetry("weekly reminders need weekday 0 (Monday) .. 6 (Sunday)")
         tz_name = timezone_name or spaces.get_timezone(ctx.deps.user_id) or reminders.DEFAULT_TIMEZONE
@@ -218,6 +229,7 @@ def memory_agent() -> Agent[NoteDeps, str]:
             weekday=weekday, fire_date=fire_date,
             window_days=window_days, category=category,
             local_time=local_time, tz_name=tz_name,
+            window_mode=window_mode, window_value=window_value,
         )
         return f"Reminder set ({kind}) for {local_time} {tz_name} (id {rid})."
 
