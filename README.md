@@ -127,13 +127,15 @@ Minimum (required when `CHANNEL=telegram`):
 | `TELEGRAM_BOT_TOKEN` | From BotFather |
 | `TELEGRAM_ALLOWED_USER_IDS` | Your Telegram id(s) — empty = bot refuses to start |
 
+For `CHANNEL=slack` instead: `SLACK_BOT_TOKEN` (xoxb-), `SLACK_APP_TOKEN` (xapp-, Socket Mode), `SLACK_ALLOWED_USER_IDS` (your Slack user id, U...). Slack app setup: Socket Mode on, bot scopes `chat:write` + `im:history` (+ `files:read` for voice), subscribe to `message.im`. Commands like `/space work` are typed as plain DM text.
+
 Useful optional vars:
 
 | Variable | Default | What it does |
 |---|---|---|
 | `API_TOKEN` | empty = HTTP data API off | Bearer token for `/capture`, `/search`, `/report`, `/export` (`Authorization: Bearer <token>`) |
 | `CLASSIFIER_MODEL` / `ANSWER_MODEL` | cheap / strong | Models for tagging notes vs answering |
-| `CHANNEL=none` | — | HTTP only (no Telegram) |
+| `CHANNEL` | `telegram` | `telegram` (default), `slack`, or `none` (HTTP only) |
 | `RESURFACING_CRON` | `0 9 * * MON` | Weekly digest schedule |
 | `STT_ENABLED` / `STT_BASE_URL` | off | Voice notes via an OpenAI-compatible STT endpoint |
 

@@ -30,6 +30,10 @@ async def _build_channel() -> Channel | None:
         from app.channels.telegram import TelegramChannel
 
         return TelegramChannel()
+    if settings.channel == "slack":
+        from app.channels.slack import SlackChannel
+
+        return SlackChannel()
     raise ValueError(f"Unknown channel: {settings.channel}")
 
 

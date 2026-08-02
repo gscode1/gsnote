@@ -30,9 +30,12 @@ class Settings(BaseSettings):
     api_token: str = ""
 
     # --- channel ---
-    channel: str = "telegram"  # telegram | none
+    channel: str = "telegram"  # telegram | slack | none
     telegram_bot_token: str = ""
     telegram_allowed_user_ids: str = ""  # comma-separated; required when channel=telegram
+    slack_bot_token: str = ""  # xoxb-...; required when channel=slack
+    slack_app_token: str = ""  # xapp-... (Socket Mode); required when channel=slack
+    slack_allowed_user_ids: str = ""  # comma-separated Slack user ids (U...); required when channel=slack
 
     # --- speech-to-text (voice input) ---
     stt_enabled: bool = False
@@ -75,6 +78,10 @@ class Settings(BaseSettings):
         if not raw:
             return set()
         return {int(x) for x in raw.split(",") if x.strip()}
+
+    @property
+    def allowed_slack_ids(self) -> set[str]:
+        return {x.strip() for x in self.slack_allowed_user_ids.split(",") if x.strip()}
 
 
 @lru_cache

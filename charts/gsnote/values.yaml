@@ -33,6 +33,10 @@ secrets:
   LLM_API_KEY: ""
   TELEGRAM_BOT_TOKEN: ""
   TELEGRAM_ALLOWED_USER_IDS: "" # required — comma-separated numeric Telegram ids
+  # required when CHANNEL=slack
+  SLACK_BOT_TOKEN: ""
+  SLACK_APP_TOKEN: ""
+  SLACK_ALLOWED_USER_IDS: ""
   S3_ACCESS_KEY_ID: ""
   S3_SECRET_ACCESS_KEY: ""
   STT_API_KEY: "" # optional
