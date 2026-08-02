@@ -9,6 +9,7 @@ k8s/secret.yaml
 .pytest_cache/
 .pi/
 .claude/
+.agents/
 docs/
 AGENTS.md
 k8s/
