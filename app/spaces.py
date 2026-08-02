@@ -5,6 +5,7 @@ queries scope to. A space is just a name — using it creates it implicitly.
 """
 import re
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.db import get_conn
 
@@ -61,3 +62,38 @@ def set_space(user_id: str, space: str) -> None:
             "ON CONFLICT(user_id) DO UPDATE SET space = excluded.space, updated_at = excluded.updated_at",
             (user_id, space, now),
         )
+
+
+def normalize_timezone(name: str) -> str:
+    """Validate and normalize an IANA timezone name."""
+    name = name.strip()
+    if not name:
+        raise ValueError("Timezone is required; use an IANA name such as Europe/Warsaw")
+    try:
+        ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise ValueError(f"Unknown timezone: {name!r} (use an IANA name such as Europe/Warsaw)")
+    return name
+
+
+def get_timezone(user_id: str) -> str | None:
+    row = get_conn().execute(
+        "SELECT timezone FROM user_settings WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    return row["timezone"] if row and row["timezone"] else None
+
+
+def set_timezone(user_id: str, name: str) -> str:
+    """Persist a validated IANA timezone and return its canonical input."""
+    name = normalize_timezone(name)
+    now = datetime.now(timezone.utc).isoformat()
+    # Include the current/default space so creating preferences does not revive
+    # the obsolete user_settings default ('personal') from migration 002.
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO user_settings (user_id, space, timezone, updated_at) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET timezone = excluded.timezone, "
+            "updated_at = excluded.updated_at",
+            (user_id, get_space(user_id), name, now),
+        )
+    return name

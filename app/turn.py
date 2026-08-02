@@ -157,6 +157,12 @@ def memory_agent() -> Agent[NoteDeps, str]:
         return get_space(ctx.deps.user_id)
 
     @agent.tool
+    async def get_user_timezone(ctx: RunContext[NoteDeps]) -> str:
+        """Report the user's configured IANA timezone, or explain how to set one."""
+        tz = spaces.get_timezone(ctx.deps.user_id)
+        return tz or "No timezone is configured. Set one with /timezone Europe/Warsaw."
+
+    @agent.tool
     async def create_reminder(
         ctx: RunContext[NoteDeps],
         message: str,
@@ -239,6 +245,19 @@ async def handle_message(channel: Channel, user_id: str, text: str) -> None:
 
 
 async def handle_command(user_id: str, command: str, args: str) -> str:
+    if command == "timezone":
+        if not args.strip():
+            tz = spaces.get_timezone(user_id)
+            return (
+                f"Timezone: {tz}."
+                if tz
+                else "Timezone is not set. Use /timezone <IANA name>, for example /timezone Europe/Warsaw."
+            )
+        try:
+            tz = spaces.set_timezone(user_id, args)
+        except ValueError as e:
+            return str(e)
+        return f"Timezone set to {tz}."
     if command == "briefing":
         if args == "on":
             briefing.set_briefing_enabled(user_id, True)
@@ -271,6 +290,7 @@ async def handle_command(user_id: str, command: str, args: str) -> str:
             f"Spaces keep your notes apart (current: {get_space(user_id)}):\n"
             "• /space <name> — switch to (or create) a space\n"
             "• /space — show active space and your spaces\n"
+            "• /timezone <IANA name> — set local time, e.g. Europe/Warsaw\n"
             "• /briefing on|off — morning message with your notes due that day"
         )
     return "Unknown command. Try /space."
