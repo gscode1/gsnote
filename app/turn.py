@@ -18,7 +18,7 @@ from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.capabilities import ProcessHistory
 from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
 
-from app import reminders
+from app import briefing, reminders
 from app.capture import VALID_CATEGORIES, capture_note
 from app.config import get_settings
 from app.llm import build_model
@@ -239,6 +239,21 @@ async def handle_message(channel: Channel, user_id: str, text: str) -> None:
 
 
 async def handle_command(user_id: str, command: str, args: str) -> str:
+    if command == "briefing":
+        if args == "on":
+            briefing.set_briefing_enabled(user_id, True)
+            return (
+                "Daily briefing on. Each morning I'll send you one message with your "
+                "notes due that day. Stop anytime with /briefing off."
+            )
+        if args == "off":
+            briefing.set_briefing_enabled(user_id, False)
+            return "Daily briefing off."
+        state = "on" if briefing.briefing_enabled(user_id) else "off"
+        return (
+            f"Daily briefing: {state}. Toggle with /briefing on|off — one morning "
+            "message listing your notes due that day."
+        )
     if command == "space":
         if args:
             return _switch_space(user_id, args)
@@ -255,7 +270,8 @@ async def handle_command(user_id: str, command: str, args: str) -> str:
             "or send a voice message.\n\n"
             f"Spaces keep your notes apart (current: {get_space(user_id)}):\n"
             "• /space <name> — switch to (or create) a space\n"
-            "• /space — show active space and your spaces"
+            "• /space — show active space and your spaces\n"
+            "• /briefing on|off — morning message with your notes due that day"
         )
     return "Unknown command. Try /space."
 
@@ -274,12 +290,12 @@ async def handle_response(user_id: str, response: str, notification_id: str) -> 
     record_response(notification_id, response)
 
 
-def make_reminder_sender(channel: Channel | None):
-    """send_fn for reminders: plain owner-scoped message, no buttons."""
+def make_plain_sender(channel: Channel | None):
+    """send_fn for reminders and the daily briefing: plain owner-scoped message, no buttons."""
 
     async def send_fn(user_id: str, message: str) -> None:
         if channel is None:
-            logger.warning("No channel configured; reminder not sent: %s", message)
+            logger.warning("No channel configured; message not sent: %s", message)
             return
         await channel.send(user_id, message)
 
