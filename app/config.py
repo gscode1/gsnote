@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     resurfacing_threshold: float = 0.6
     resurfacing_cooldown_days: int = 30
 
+    # --- reminders ---
+    reminder_cron: str = "0 8 * * *"  # daily tick; all reminders fire at this hour
+
     # --- graph ---
     semantic_knn_k: int = 5
     semantic_similarity_threshold: float = 0.75

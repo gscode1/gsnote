@@ -20,6 +20,8 @@ MEMORY = (
     "- If the user asks about their spaces (which spaces they have, which is active), call "
     "list_spaces or get_current_space. You cannot switch spaces — tell the user to send "
     "/space <name>.\n"
+    "- If the user asks to be reminded about something, call create_reminder; to show "
+    "or cancel reminders, call list_reminders / cancel_reminder.\n"
     "ALWAYS use your tools — never claim you lack access to memory or tools. You may call "
     "tools more than once. Answer concisely based on what the tools return; never fabricate notes.\n"
     "After saving a note, confirm back to the user the exact text that was stored (the tool "

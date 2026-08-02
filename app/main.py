@@ -14,7 +14,13 @@ from app.db import cursor, get_conn, run_migrations
 from app.reporting import report
 from app.retrieval import search
 from app.scheduler import start_scheduler, stop_scheduler
-from app.turn import handle_command, handle_message, handle_response, make_digest_sender
+from app.turn import (
+    handle_command,
+    handle_message,
+    handle_response,
+    make_digest_sender,
+    make_reminder_sender,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -54,7 +60,7 @@ async def lifespan(app: FastAPI):
         _channel.on_command(handle_command)
         await _channel.start()
 
-    scheduler = start_scheduler(make_digest_sender(_channel))
+    scheduler = start_scheduler(make_digest_sender(_channel), make_reminder_sender(_channel))
 
     yield
 
