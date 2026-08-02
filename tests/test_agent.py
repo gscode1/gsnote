@@ -198,7 +198,7 @@ async def test_create_digest_tool_persists_owner_scoped_row():
         await agent.run("send me a weekly digest of my ideas from last 7 days",
                         deps=NoteDeps(user_id="u1", space="work"))
 
-    assert "Digest schedule set" in captured["result"]
+    assert "Digest scheduled" in captured["result"]
     row = get_conn().execute("SELECT * FROM reminders").fetchone()
     assert row is not None
     assert row["user_id"] == "u1" and row["space"] == "work"

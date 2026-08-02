@@ -57,19 +57,24 @@ def normalize_window(
 ) -> tuple[str | None, int | None]:
     """Validate a query window while preserving the legacy window_days field."""
     if window_mode is None:
-        return ("rolling_days", window_days) if window_days is not None else (None, None)
+        if window_days is None:
+            return (None, None)
+        if window_days < 1:
+            raise ValueError("rolling_days requires window_days >= 1")
+        return "rolling_days", window_days
     if window_mode not in WINDOW_MODES:
         raise ValueError(f"window_mode must be one of: {', '.join(sorted(WINDOW_MODES))}")
     if window_mode == "rolling_days":
-        if window_days is None or window_days < 1:
-            raise ValueError("rolling_days requires window_days >= 1")
-        return window_mode, window_days
+        days = window_days if window_days is not None else window_value
+        if days is None or days < 1:
+            raise ValueError("rolling_days requires window_days or window_value >= 1")
+        return window_mode, days
     if window_mode == "rolling_hours":
         if window_value is None or window_value < 1:
             raise ValueError("rolling_hours requires window_value >= 1")
         return window_mode, window_value
-    if window_value is not None:
-        raise ValueError("previous_local_day does not accept window_value")
+    if window_value is not None or window_days is not None:
+        raise ValueError("previous_local_day does not accept window values")
     return window_mode, None
 
 
@@ -149,10 +154,19 @@ def create_schedule(
 ) -> str:
     if action_type not in ACTION_TYPES:
         raise ValueError(f"action_type must be one of: {', '.join(sorted(ACTION_TYPES))}")
+    if action_type == "digest" and window_mode is None and window_days is None:
+        raise ValueError("digest schedules require a query window")
+    if action_type == "notify" and (
+        window_mode is not None or window_days is not None or window_value is not None
+    ):
+        raise ValueError("notification schedules cannot specify a query window")
     now = _utc()
     tz_name = normalize_timezone(tz_name or get_timezone(user_id) or DEFAULT_TIMEZONE)
     local_time = normalize_local_time(local_time)
     window_mode, window_value = normalize_window(window_days, window_mode, window_value)
+    # Store one canonical value for each mode; notification schedules leave these NULL.
+    window_days = window_value if window_mode == "rolling_days" else None
+    window_value = window_value if window_mode == "rolling_hours" else None
     next_run_at = compute_next_run_at(
         kind, local_time, tz_name, weekday=weekday, fire_date=fire_date, ref_utc=now
     )
@@ -190,6 +204,10 @@ def create_digest(
     window_value: int | None = None,
     action_type: str = "digest",
 ) -> str:
+    if action_type != "digest":
+        raise ValueError("create_digest requires action_type=digest")
+    if window_mode is None and window_days is None:
+        raise ValueError("digest schedules require a query window")
     return create_schedule(
         user_id, space, message, kind, weekday=weekday, fire_date=fire_date,
         window_days=window_days, category=category, local_time=local_time,
@@ -256,12 +274,13 @@ def _query_notes(reminder: dict, now: datetime) -> list[dict] | None:
     mode = reminder.get("window_mode")
     if mode is None and reminder.get("window_days") is not None:
         mode = "rolling_days"
-    if mode is None and reminder.get("action_type") != "digest":
+    if mode is None:
         return None
 
     if mode == "rolling_days":
+        days = reminder.get("window_days") or reminder.get("window_value")
         return notes_in_window(
-            reminder["window_days"], reminder.get("category"),
+            days, reminder.get("category"),
             space=reminder["space"], owner=reminder["user_id"],
         )
 
@@ -283,7 +302,7 @@ def _query_notes(reminder: dict, now: datetime) -> list[dict] | None:
             r for r in filtered
             if _note_utc(r["created_at"]).astimezone(tz).date() == yesterday
         ]
-    return filtered
+    raise ValueError(f"Unknown window mode: {mode}")
 
 
 def _describe_window(reminder: dict) -> str:

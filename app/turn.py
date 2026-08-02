@@ -210,7 +210,10 @@ def memory_agent() -> Agent[NoteDeps, str]:
             weekday=weekday, fire_date=fire_date,
             local_time=local_time, tz_name=tz_name, action_type="notify",
         )
-        return f"Notification schedule set ({kind}) for {local_time} {tz_name} (id {sid})."
+        return (
+            f"Notification schedule set: \"{message.strip()}\" ({kind}, {local_time} {tz_name}, "
+            f"space: {ctx.deps.space}, id {sid})."
+        )
 
     @agent.tool
     async def create_digest(
@@ -251,6 +254,8 @@ def memory_agent() -> Agent[NoteDeps, str]:
             )
         except ValueError as e:
             raise ModelRetry(str(e))
+        if window_mode == "rolling_days":
+            window_days, window_value = window_value, None
         if kind == "weekly" and (weekday is None or not 0 <= weekday <= 6):
             raise ModelRetry("weekly digest schedules need weekday 0 (Monday) .. 6 (Sunday)")
         tz_name = timezone_name or spaces.get_timezone(ctx.deps.user_id) or reminders.DEFAULT_TIMEZONE
@@ -281,7 +286,16 @@ def memory_agent() -> Agent[NoteDeps, str]:
             window_mode=window_mode, window_value=window_value,
             action_type="digest",
         )
-        return f"Digest schedule set ({kind}) for {local_time} {tz_name} (id {sid})."
+        window_desc = (
+            "yesterday" if window_mode == "previous_local_day" else
+            f"last {window_value} hours" if window_mode == "rolling_hours" else
+            f"last {window_days} days"
+        )
+        category_desc = f", category: {category}" if category else ""
+        return (
+            f"Digest scheduled ({kind}, {local_time} {tz_name}, space: {ctx.deps.space}, "
+            f"window: {window_desc}{category_desc}, id {sid})."
+        )
 
     @agent.tool
     async def list_schedules(ctx: RunContext[NoteDeps]) -> str:
@@ -304,12 +318,16 @@ def memory_agent() -> Agent[NoteDeps, str]:
         def window(r: dict) -> str:
             mode = r.get("window_mode")
             if mode == "previous_local_day":
-                return "yesterday"
-            if mode == "rolling_hours":
-                return f"last {r['window_value']} hours"
-            if mode == "rolling_days" or r.get("window_days") is not None:
-                return f"last {r['window_days']} days"
-            return "message only"
+                description = "yesterday"
+            elif mode == "rolling_hours":
+                description = f"last {r['window_value']} hours"
+            elif mode == "rolling_days" or r.get("window_days") is not None:
+                description = f"last {r['window_days']} days"
+            else:
+                description = "message only"
+            if r.get("category"):
+                description += f"; category: {r['category']}"
+            return description
 
         return "\n".join(
             f"- {r['id']}: [{r.get('action_type', 'notify')}] {r['message']} "
@@ -395,6 +413,7 @@ async def handle_command(user_id: str, command: str, args: str) -> str:
             "• /space <name> — switch to (or create) a space\n"
             "• /space — show active space and your spaces\n"
             "• /timezone <IANA name> — set local time, e.g. Europe/Warsaw\n"
+            "• Schedules — fixed notifications send text; digests summarize your notes\n"
             "• /briefing on [HH:MM]|off — local-time message with notes due that day"
         )
     return "Unknown command. Try /space."
