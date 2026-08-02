@@ -25,12 +25,15 @@ def _reminder(
     category=None,
     local_time="00:00",
     tz_name="UTC",
+    window_mode=None,
+    window_value=None,
     due=True,
 ) -> dict:
     rid = create_reminder(
         user_id, space, message, kind, weekday=weekday,
         fire_date=fire_date, window_days=window_days, category=category,
         local_time=local_time, tz_name=tz_name,
+        window_mode=window_mode, window_value=window_value,
     )
     with cursor() as cur:
         if due:
@@ -41,10 +44,16 @@ def _reminder(
     return dict(get_conn().execute("SELECT * FROM reminders WHERE id = ?", (rid,)).fetchone())
 
 
-def _insert_note(content: str, source: str = "alice", days_ago: int = 0, space: str = "default") -> str:
+def _insert_note(
+    content: str,
+    source: str = "alice",
+    days_ago: int = 0,
+    space: str = "default",
+    created_at: str | None = None,
+) -> str:
     note_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
-    created_at = (now - timedelta(days=days_ago)).isoformat()
+    created_at = created_at or (now - timedelta(days=days_ago)).isoformat()
     with cursor() as cur:
         cur.execute(
             "INSERT INTO notes (id, content, category, importance, source, space, created_at, updated_at) "
@@ -85,6 +94,11 @@ def test_compute_next_run_at_handles_dst_gap_and_overlap():
     assert fall == "2026-11-01T05:30:00+00:00"
 
 
+def test_window_modes_require_their_values():
+    with pytest.raises(ValueError, match="rolling_hours requires"):
+        _reminder(kind="daily", window_mode="rolling_hours", due=False)
+
+
 def test_compute_next_run_at_handles_weekly_and_missed_once():
     reference = datetime(2026, 8, 4, 12, 0, tzinfo=timezone.utc)  # Tuesday
     weekly = compute_next_run_at(
@@ -112,6 +126,75 @@ async def test_message_reminder_sends_once_per_occurrence():
 
     assert len(sent) == 1
     assert sent[0][0] == "alice" and "drink water" in sent[0][1]
+
+
+@pytest.mark.anyio
+async def test_previous_local_day_uses_reminder_timezone(monkeypatch):
+    import app.reminders as mod
+
+    fixed = datetime(2026, 8, 2, 8, 0, tzinfo=timezone.utc)
+    yesterday = _insert_note(
+        "yesterday note", created_at="2026-08-01T19:30:00+00:00"
+    )  # 21:30 on Aug 1 in Europe/Warsaw
+    _insert_note("today note", created_at="2026-08-01T23:00:00+00:00")  # 01:00 Aug 2 local
+    reminder = _reminder(
+        kind="daily", window_mode="previous_local_day", tz_name="Europe/Warsaw",
+        local_time="09:00", due=False,
+    )
+    with cursor() as cur:
+        cur.execute(
+            "UPDATE reminders SET next_run_at = ? WHERE id = ?",
+            ((fixed - timedelta(minutes=1)).isoformat(), reminder["id"]),
+        )
+
+    async def fake_phrase(notes):
+        return " / ".join(n["content"] for n in notes)
+
+    monkeypatch.setattr(mod, "phrase_nudge", fake_phrase)
+    sent = []
+
+    async def fake_send(user_id, message):
+        sent.append(message)
+
+    await run_reminders(fake_send, now_utc=fixed)
+    assert len(sent) == 1
+    assert "yesterday note" in sent[0]
+    assert "today note" not in sent[0]
+    assert get_conn().execute(
+        "SELECT note_ids FROM notifications WHERE kind LIKE 'reminder:%'"
+    ).fetchone()["note_ids"] == f'["{yesterday}"]'
+
+
+@pytest.mark.anyio
+async def test_rolling_hours_window_is_not_calendar_day(monkeypatch):
+    import app.reminders as mod
+
+    fixed = datetime(2026, 8, 2, 12, 0, tzinfo=timezone.utc)
+    _insert_note("23 hours old", created_at="2026-08-01T13:00:00+00:00")
+    _insert_note("25 hours old", created_at="2026-08-01T11:00:00+00:00")
+    reminder = _reminder(
+        kind="daily", window_mode="rolling_hours", window_value=24,
+        local_time="09:00", due=False,
+    )
+    with cursor() as cur:
+        cur.execute(
+            "UPDATE reminders SET next_run_at = ? WHERE id = ?",
+            ((fixed - timedelta(minutes=1)).isoformat(), reminder["id"]),
+        )
+
+    async def fake_phrase(notes):
+        return " / ".join(n["content"] for n in notes)
+
+    monkeypatch.setattr(mod, "phrase_nudge", fake_phrase)
+    sent = []
+
+    async def fake_send(user_id, message):
+        sent.append(message)
+
+    await run_reminders(fake_send, now_utc=fixed)
+    assert len(sent) == 1
+    assert "23 hours old" in sent[0]
+    assert "25 hours old" not in sent[0]
 
 
 @pytest.mark.anyio

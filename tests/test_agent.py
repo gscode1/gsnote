@@ -112,7 +112,12 @@ async def test_create_reminder_tool_persists_local_schedule():
         model=FunctionModel(
             _first_call_then_text(
                 "create_reminder",
-                {"message": "daily summary", "kind": "daily", "local_time": "21:00"},
+                {
+                    "message": "daily summary",
+                    "kind": "daily",
+                    "local_time": "21:00",
+                    "window_mode": "previous_local_day",
+                },
             )
         )
     ):
@@ -120,11 +125,12 @@ async def test_create_reminder_tool_persists_local_schedule():
 
     assert result.output == "done"
     row = get_conn().execute(
-        "SELECT local_time, timezone, next_run_at FROM reminders WHERE user_id = ?", ("u1",)
+        "SELECT local_time, timezone, next_run_at, window_mode FROM reminders WHERE user_id = ?", ("u1",)
     ).fetchone()
     assert row["local_time"] == "21:00"
     assert row["timezone"] == "Europe/Warsaw"
     assert row["next_run_at"] is not None
+    assert row["window_mode"] == "previous_local_day"
 
 
 @pytest.mark.anyio
