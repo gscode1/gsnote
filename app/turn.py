@@ -23,6 +23,7 @@ from app.prompts import MEMORY, prompt
 from app.reporting import notes_in_window
 from app.resurfacing import Digest, record_response
 from app.retrieval import search
+from app import spaces
 from app.spaces import get_space, list_spaces, set_space
 
 if TYPE_CHECKING:
@@ -133,6 +134,19 @@ def memory_agent() -> Agent[NoteDeps, str]:
         if not notes:
             return f"No notes found in the last {days} day(s)."
         return "\n".join(f"- [{n['category']}] {n['content']} ({n['created_at']})" for n in notes)
+
+    @agent.tool
+    async def list_spaces(ctx: RunContext[NoteDeps]) -> str:
+        """List the user's note spaces and which one is currently active."""
+        active = get_space(ctx.deps.user_id)
+        # spaces.list_spaces: the module-level import is shadowed by this tool's name.
+        listing = ", ".join(f"{s} (active)" if s == active else s for s in spaces.list_spaces(ctx.deps.user_id))
+        return f"Spaces: {listing}. You cannot switch spaces — tell the user to send /space <name>."
+
+    @agent.tool
+    async def get_current_space(ctx: RunContext[NoteDeps]) -> str:
+        """Report the user's currently active note space."""
+        return get_space(ctx.deps.user_id)
 
     return agent
 

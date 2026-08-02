@@ -10,6 +10,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from app import capture
 from app.capture import Classification
 from app.db import get_conn
+from app.spaces import set_space
 from app.turn import NoteDeps, memory_agent
 
 
@@ -81,3 +82,57 @@ async def test_ask_intent_calls_search_note():
 
     assert result.output == "answered"
     assert "home lab" in captured["result"].lower()
+
+
+def _capture_tool_return(tool_name: str, args: dict, captured: dict):
+    """FunctionModel fn: call `tool_name`, record the tool-return content, then finish."""
+
+    def fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        called = any(
+            getattr(p, "part_kind", None) == "tool-return"
+            for m in messages
+            for p in getattr(m, "parts", [])
+        )
+        if called:
+            for m in messages:
+                for p in getattr(m, "parts", []):
+                    if getattr(p, "part_kind", None) == "tool-return":
+                        captured["result"] = p.content
+            return ModelResponse(parts=[TextPart("done")])
+        return ModelResponse(parts=[ToolCallPart(tool_name, args)])
+
+    return fn
+
+
+@pytest.mark.anyio
+async def test_list_spaces_tool_returns_real_state():
+    agent = memory_agent()
+    # u1 is active in "work" (no notes there) and has notes in "home";
+    # u2's "secret" space must not leak into u1's listing.
+    set_space("u1", "work")
+    await capture.capture_note("fix the tap", source="u1", space="home")
+    await capture.capture_note("u2 private stuff", source="u2", space="secret")
+
+    captured: dict = {}
+    with agent.override(model=FunctionModel(_capture_tool_return("list_spaces", {}, captured))):
+        await agent.run("which spaces do I have?", deps=NoteDeps(user_id="u1"))
+
+    assert "home" in captured["result"]
+    assert "work (active)" in captured["result"]
+    assert "secret" not in captured["result"]
+
+
+@pytest.mark.anyio
+async def test_get_current_space_tool_defaults_and_switch():
+    agent = memory_agent()
+
+    captured: dict = {}
+    with agent.override(model=FunctionModel(_capture_tool_return("get_current_space", {}, captured))):
+        await agent.run("which space am I in?", deps=NoteDeps(user_id="u1"))
+    assert captured["result"] == "default"
+
+    set_space("u1", "work")
+    captured.clear()
+    with agent.override(model=FunctionModel(_capture_tool_return("get_current_space", {}, captured))):
+        await agent.run("which space am I in?", deps=NoteDeps(user_id="u1"))
+    assert captured["result"] == "work"
