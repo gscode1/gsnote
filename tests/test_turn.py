@@ -147,3 +147,26 @@ async def test_space_command_rejects_invalid_name():
     reply = await handle_command("u1", "space", "!!!")
     assert "Invalid space name" in reply
     assert get_space("u1") == "default"
+
+
+@pytest.mark.anyio
+async def test_briefing_command_defaults_off_and_toggles():
+    from app.briefing import briefing_enabled
+
+    reply = await handle_command("u1", "briefing", "")
+    assert "off" in reply
+    assert briefing_enabled("u1") is False
+
+    reply = await handle_command("u1", "briefing", "on")
+    assert "on" in reply.lower()
+    assert briefing_enabled("u1") is True
+
+    reply = await handle_command("u1", "briefing", "off")
+    assert "off" in reply
+    assert briefing_enabled("u1") is False
+
+
+@pytest.mark.anyio
+async def test_start_command_documents_briefing():
+    reply = await handle_command("u1", "start", "")
+    assert "/briefing" in reply

@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     # --- reminders ---
     reminder_cron: str = "0 8 * * *"  # daily tick; all reminders fire at this hour
 
+    # --- briefing ---
+    briefing_cron: str = "0 8 * * *"  # daily commitment briefing for opted-in users
+
     # --- graph ---
     semantic_knn_k: int = 5
     semantic_similarity_threshold: float = 0.75

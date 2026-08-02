@@ -19,7 +19,7 @@ from app.turn import (
     handle_message,
     handle_response,
     make_digest_sender,
-    make_reminder_sender,
+    make_plain_sender,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -60,7 +60,7 @@ async def lifespan(app: FastAPI):
         _channel.on_command(handle_command)
         await _channel.start()
 
-    scheduler = start_scheduler(make_digest_sender(_channel), make_reminder_sender(_channel))
+    scheduler = start_scheduler(make_digest_sender(_channel), make_plain_sender(_channel))
 
     yield
 

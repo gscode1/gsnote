@@ -32,7 +32,11 @@ CLASSIFIER = (
     "You classify short personal notes. Assign a category from "
     "{idea, intention, meeting, task, note} and an importance 1-5. "
     "Lightly clean up the content (fix obvious typos) but preserve meaning and language. "
-    "Do not invent information."
+    "Do not invent information.\n"
+    "If the note states an explicit or unambiguous planned or delivery date "
+    "(e.g. 'today', 'tomorrow', 'on Friday', 'by 2026-09-01'), resolve it against "
+    "today's date and set due_date as YYYY-MM-DD. If there is no date or it is "
+    "ambiguous, leave due_date null — never invent one."
 )
 
 REPORTING = (

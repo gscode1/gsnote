@@ -4,7 +4,7 @@ Classification lives here: it is the capture pipeline's own first step.
 """
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from functools import lru_cache
 
 from pydantic import BaseModel, Field
@@ -24,6 +24,11 @@ class Classification(BaseModel):
     category: str = Field(description="One of: idea, intention, meeting, task, note")
     importance: int = Field(ge=1, le=5, description="1 (trivial) to 5 (critical)")
     normalized_content: str = Field(description="The note content, lightly cleaned up")
+    due_date: str | None = Field(
+        default=None,
+        description="YYYY-MM-DD if the note states an explicit or unambiguous "
+        "planned/delivery date, else null",
+    )
 
 
 @lru_cache
@@ -35,7 +40,11 @@ def classifier_agent() -> Agent:
         # Callable so data/prompts/classifier.md overrides are re-read each run.
         # NOTE: this prompt backs structured Classification output — an override must
         # still demand category (idea|intention|meeting|task|note) + importance 1-5.
-        instructions=lambda: prompt("classifier", CLASSIFIER),
+        # Today's date is injected so relative dates ("tomorrow") resolve to due_date.
+        instructions=lambda: (
+            prompt("classifier", CLASSIFIER)
+            + f"\nToday is {datetime.now().strftime('%A, %Y-%m-%d')}."
+        ),
     )
 
 
@@ -50,6 +59,13 @@ async def classify_note(content: str) -> Classification:
 async def capture_note(content: str, source: str = "user", space: str = "default") -> dict:
     classification = await classify_note(content)
 
+    due_date = classification.due_date
+    if due_date:
+        try:
+            date.fromisoformat(due_date)
+        except ValueError:
+            due_date = None  # unparseable model output -> no date, never invent one
+
     note_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
     vector = embed(classification.normalized_content)
@@ -57,8 +73,8 @@ async def capture_note(content: str, source: str = "user", space: str = "default
     with cursor() as cur:
         cur.execute(
             """
-            INSERT INTO notes (id, content, category, importance, source, space, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO notes (id, content, category, importance, source, space, due_date, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 note_id,
@@ -67,6 +83,7 @@ async def capture_note(content: str, source: str = "user", space: str = "default
                 classification.importance,
                 source,
                 space,
+                due_date,
                 now,
                 now,
             ),
@@ -88,5 +105,6 @@ async def capture_note(content: str, source: str = "user", space: str = "default
         "category": classification.category,
         "importance": classification.importance,
         "space": space,
+        "due_date": due_date,
         "created_at": now,
     }

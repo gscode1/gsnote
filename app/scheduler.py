@@ -4,6 +4,7 @@ import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from app.briefing import run_briefing
 from app.config import get_settings
 from app.reminders import run_reminders
 from app.resurfacing import run_digest
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 _scheduler: AsyncIOScheduler | None = None
 
 
-def start_scheduler(send_fn, reminder_send_fn) -> AsyncIOScheduler:
+def start_scheduler(send_fn, plain_send_fn) -> AsyncIOScheduler:
     global _scheduler
     settings = get_settings()
     _scheduler = AsyncIOScheduler()
@@ -32,13 +33,24 @@ def start_scheduler(send_fn, reminder_send_fn) -> AsyncIOScheduler:
 
     async def _reminders_job():
         try:
-            result = await run_reminders(reminder_send_fn)
+            result = await run_reminders(plain_send_fn)
             logger.info("reminder run: %s", result)
         except Exception:
             logger.exception("reminder job failed")
 
     _scheduler.add_job(
         _reminders_job, CronTrigger.from_crontab(settings.reminder_cron), id="reminders_tick"
+    )
+
+    async def _briefing_job():
+        try:
+            result = await run_briefing(plain_send_fn)
+            logger.info("briefing run: %s", result)
+        except Exception:
+            logger.exception("briefing job failed")
+
+    _scheduler.add_job(
+        _briefing_job, CronTrigger.from_crontab(settings.briefing_cron), id="daily_briefing"
     )
 
     _scheduler.start()
