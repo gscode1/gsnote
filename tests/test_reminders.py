@@ -147,10 +147,10 @@ async def test_previous_local_day_uses_reminder_timezone(monkeypatch):
             ((fixed - timedelta(minutes=1)).isoformat(), reminder["id"]),
         )
 
-    async def fake_phrase(notes):
+    async def fake_summarize(notes, window_desc=""):
         return " / ".join(n["content"] for n in notes)
 
-    monkeypatch.setattr(mod, "phrase_nudge", fake_phrase)
+    monkeypatch.setattr(mod, "summarize_notes", fake_summarize)
     sent = []
 
     async def fake_send(user_id, message):
@@ -182,10 +182,10 @@ async def test_rolling_hours_window_is_not_calendar_day(monkeypatch):
             ((fixed - timedelta(minutes=1)).isoformat(), reminder["id"]),
         )
 
-    async def fake_phrase(notes):
+    async def fake_summarize(notes, window_desc=""):
         return " / ".join(n["content"] for n in notes)
 
-    monkeypatch.setattr(mod, "phrase_nudge", fake_phrase)
+    monkeypatch.setattr(mod, "summarize_notes", fake_summarize)
     sent = []
 
     async def fake_send(user_id, message):
@@ -206,10 +206,10 @@ async def test_query_reminder_scopes_to_owner_and_window(monkeypatch):
     _insert_note("alice stale idea", source="alice", days_ago=30)
     _reminder(kind="daily", user_id="alice", window_days=7, category="idea")
 
-    async def fake_phrase(notes):
+    async def fake_summarize(notes, window_desc=""):
         return " / ".join(n["content"] for n in notes)
 
-    monkeypatch.setattr(mod, "phrase_nudge", fake_phrase)
+    monkeypatch.setattr(mod, "summarize_notes", fake_summarize)
 
     sent = []
 
@@ -231,10 +231,10 @@ async def test_query_reminder_scopes_to_owner_and_window(monkeypatch):
 async def test_empty_window_sends_nothing_but_advances_schedule(monkeypatch):
     import app.reminders as mod
 
-    async def fake_phrase(notes):
+    async def fake_summarize(notes, window_desc=""):
         return "should not be called"
 
-    monkeypatch.setattr(mod, "phrase_nudge", fake_phrase)
+    monkeypatch.setattr(mod, "summarize_notes", fake_summarize)
     r = _reminder(kind="daily", window_days=7)
     sent = []
 

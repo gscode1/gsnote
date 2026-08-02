@@ -164,51 +164,34 @@ def memory_agent() -> Agent[NoteDeps, str]:
         return tz or "No timezone is configured. Set one with /timezone Europe/Warsaw."
 
     @agent.tool
-    async def create_reminder(
+    async def create_schedule(
         ctx: RunContext[NoteDeps],
         message: str,
         kind: str,
         weekday: int | None = None,
         fire_date: str | None = None,
-        window_days: int | None = None,
-        category: str | None = None,
         local_time: str | None = None,
         timezone_name: str | None = None,
-        window_mode: str | None = None,
-        window_value: int | None = None,
     ) -> str:
-        """Schedule a reminder at a local wall-clock time.
+        """Schedule a recurring or one-off fixed message notification at a local time.
 
         Args:
-            message: What to remind about, in the user's own words.
+            message: What to notify about, in the user's own words.
             kind: 'once' (needs fire_date), 'daily', or 'weekly' (needs weekday).
             weekday: 0=Monday .. 6=Sunday; required when kind='weekly'.
             fire_date: YYYY-MM-DD; required when kind='once'; today or later.
-            window_days: If set, attach the user's notes from the last N days.
             local_time: Optional 24-hour HH:MM time, e.g. 21:00. Defaults to 08:00.
             timezone_name: Optional IANA timezone override; otherwise the user's setting.
-            window_mode: previous_local_day for "yesterday", rolling_hours for last N hours,
-                or rolling_days for the existing last-N-days behavior.
-            window_value: Number of hours for rolling_hours; not used for other modes.
-            category: Optional filter — one of idea, intention, meeting, task, note.
         """
         if not message.strip():
-            raise ModelRetry("Cannot set a reminder with an empty message. Ask what to remind about.")
+            raise ModelRetry("Cannot set a schedule with an empty message. Ask what to notify about.")
         if kind not in reminders.KINDS:
             raise ModelRetry("kind must be one of: once, daily, weekly")
-        if window_days is not None and window_days < 1:
-            raise ModelRetry("window_days must be at least 1.")
-        try:
-            window_mode, window_value = reminders.normalize_window(
-                window_days, window_mode, window_value
-            )
-        except ValueError as e:
-            raise ModelRetry(str(e))
         if kind == "weekly" and (weekday is None or not 0 <= weekday <= 6):
-            raise ModelRetry("weekly reminders need weekday 0 (Monday) .. 6 (Sunday)")
+            raise ModelRetry("weekly schedules need weekday 0 (Monday) .. 6 (Sunday)")
         tz_name = timezone_name or spaces.get_timezone(ctx.deps.user_id) or reminders.DEFAULT_TIMEZONE
         if local_time is not None and timezone_name is None and spaces.get_timezone(ctx.deps.user_id) is None:
-            raise ModelRetry("Set your timezone first with /timezone Europe/Warsaw, then retry this reminder.")
+            raise ModelRetry("Set your timezone first with /timezone Europe/Warsaw, then retry this schedule.")
         try:
             local_time = reminders.normalize_local_time(local_time or reminders.DEFAULT_LOCAL_TIME)
             tz_name = reminders.normalize_timezone(tz_name)
@@ -218,27 +201,94 @@ def memory_agent() -> Agent[NoteDeps, str]:
             try:
                 when = date.fromisoformat(fire_date or "")
             except ValueError:
-                raise ModelRetry("once reminders need fire_date as YYYY-MM-DD")
+                raise ModelRetry("once schedules need fire_date as YYYY-MM-DD")
+            today = datetime.now(timezone.utc).astimezone(ZoneInfo(tz_name)).date()
+            if when < today:
+                raise ModelRetry(f"{fire_date} is in the past — today is {today} in {tz_name}")
+        sid = reminders.create_schedule(
+            ctx.deps.user_id, ctx.deps.space, message.strip(), kind,
+            weekday=weekday, fire_date=fire_date,
+            local_time=local_time, tz_name=tz_name, action_type="notify",
+        )
+        return f"Notification schedule set ({kind}) for {local_time} {tz_name} (id {sid})."
+
+    @agent.tool
+    async def create_digest(
+        ctx: RunContext[NoteDeps],
+        kind: str,
+        message: str | None = None,
+        weekday: int | None = None,
+        fire_date: str | None = None,
+        window_mode: str | None = None,
+        window_value: int | None = None,
+        window_days: int | None = None,
+        category: str | None = None,
+        local_time: str | None = None,
+        timezone_name: str | None = None,
+    ) -> str:
+        """Schedule a recurring note digest/summary at a local wall-clock time.
+
+        Args:
+            kind: 'once' (needs fire_date), 'daily', or 'weekly' (needs weekday).
+            message: Optional label/topic for the digest summary.
+            weekday: 0=Monday .. 6=Sunday; required when kind='weekly'.
+            fire_date: YYYY-MM-DD; required when kind='once'; today or later.
+            window_mode: previous_local_day for "yesterday", rolling_hours for last N hours,
+                or rolling_days for last N days.
+            window_value: Number of hours when window_mode='rolling_hours'.
+            window_days: Number of days when window_mode='rolling_days'.
+            category: Optional note filter — one of idea, intention, meeting, task, note.
+            local_time: Optional 24-hour HH:MM time, e.g. 21:00. Defaults to 08:00.
+            timezone_name: Optional IANA timezone override; otherwise the user's setting.
+        """
+        if kind not in reminders.KINDS:
+            raise ModelRetry("kind must be one of: once, daily, weekly")
+        if window_mode is None and window_days is None:
+            raise ModelRetry("Digest requires a query window (window_mode or window_days).")
+        try:
+            window_mode, window_value = reminders.normalize_window(
+                window_days, window_mode, window_value
+            )
+        except ValueError as e:
+            raise ModelRetry(str(e))
+        if kind == "weekly" and (weekday is None or not 0 <= weekday <= 6):
+            raise ModelRetry("weekly digest schedules need weekday 0 (Monday) .. 6 (Sunday)")
+        tz_name = timezone_name or spaces.get_timezone(ctx.deps.user_id) or reminders.DEFAULT_TIMEZONE
+        if local_time is not None and timezone_name is None and spaces.get_timezone(ctx.deps.user_id) is None:
+            raise ModelRetry("Set your timezone first with /timezone Europe/Warsaw, then retry this digest schedule.")
+        try:
+            local_time = reminders.normalize_local_time(local_time or reminders.DEFAULT_LOCAL_TIME)
+            tz_name = reminders.normalize_timezone(tz_name)
+        except ValueError as e:
+            raise ModelRetry(str(e))
+        if kind == "once":
+            try:
+                when = date.fromisoformat(fire_date or "")
+            except ValueError:
+                raise ModelRetry("once digest schedules need fire_date as YYYY-MM-DD")
             today = datetime.now(timezone.utc).astimezone(ZoneInfo(tz_name)).date()
             if when < today:
                 raise ModelRetry(f"{fire_date} is in the past — today is {today} in {tz_name}")
         if category is not None and category not in VALID_CATEGORIES:
             raise ModelRetry(f"category must be one of {sorted(VALID_CATEGORIES)}")
-        rid = reminders.create_reminder(
-            ctx.deps.user_id, ctx.deps.space, message.strip(), kind,
+
+        label = (message or "").strip() or "Note Digest"
+        sid = reminders.create_digest(
+            ctx.deps.user_id, ctx.deps.space, label, kind,
             weekday=weekday, fire_date=fire_date,
             window_days=window_days, category=category,
             local_time=local_time, tz_name=tz_name,
             window_mode=window_mode, window_value=window_value,
+            action_type="digest",
         )
-        return f"Reminder set ({kind}) for {local_time} {tz_name} (id {rid})."
+        return f"Digest schedule set ({kind}) for {local_time} {tz_name} (id {sid})."
 
     @agent.tool
-    async def list_reminders(ctx: RunContext[NoteDeps]) -> str:
-        """List the user's active reminders with their ids."""
-        rows = reminders.list_reminders(ctx.deps.user_id)
+    async def list_schedules(ctx: RunContext[NoteDeps]) -> str:
+        """List the user's active notification and digest schedules with their ids."""
+        rows = reminders.list_schedules(ctx.deps.user_id)
         if not rows:
-            return "No active reminders."
+            return "No active schedules."
 
         def schedule(r: dict) -> str:
             if r["kind"] == "weekly":
@@ -262,16 +312,16 @@ def memory_agent() -> Agent[NoteDeps, str]:
             return "message only"
 
         return "\n".join(
-            f"- {r['id']}: {r['message']} "
+            f"- {r['id']}: [{r.get('action_type', 'notify')}] {r['message']} "
             f"({schedule(r)}; space: {r['space']}; window: {window(r)})"
             for r in rows
         )
 
     @agent.tool
-    async def cancel_reminder(ctx: RunContext[NoteDeps], reminder_id: str) -> str:
-        """Cancel one of the user's reminders by id (get ids from list_reminders)."""
-        ok = reminders.cancel_reminder(ctx.deps.user_id, reminder_id)
-        return "Cancelled." if ok else "No active reminder with that id."
+    async def cancel_schedule(ctx: RunContext[NoteDeps], schedule_id: str) -> str:
+        """Cancel one of the user's schedules by id (get ids from list_schedules)."""
+        ok = reminders.cancel_schedule(ctx.deps.user_id, schedule_id)
+        return "Cancelled." if ok else "No active schedule with that id."
 
     return agent
 

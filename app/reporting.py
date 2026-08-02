@@ -68,6 +68,19 @@ def notes_in_window(
     return [dict(r) for r in rows]
 
 
+async def summarize_notes(notes: list[dict], window_desc: str = "the time window") -> str:
+    if not notes:
+        return "No notes found in that time window."
+
+    context = "\n".join(f"- [{n['category']}] {n['content']} ({n['created_at']})" for n in notes)
+    prompt = (
+        f"Summarize the following notes captured in {window_desc}. "
+        f"Be concise and group by theme if helpful.\n\n{context}"
+    )
+    result = await answer_agent().run(prompt)
+    return result.output
+
+
 async def report(
     query: str,
     category: str | None = None,
@@ -76,14 +89,5 @@ async def report(
 ) -> str:
     days = parse_window_days(query)
     notes = notes_in_window(days, category, space=space, owner=owner)
+    return await summarize_notes(notes, f"the last {days} day(s)")
 
-    if not notes:
-        return "No notes found in that time window."
-
-    context = "\n".join(f"- [{n['category']}] {n['content']} ({n['created_at']})" for n in notes)
-    prompt = (
-        f"Summarize the following notes captured in the last {days} day(s). "
-        f"Be concise and group by theme if helpful.\n\n{context}"
-    )
-    result = await answer_agent().run(prompt)
-    return result.output
