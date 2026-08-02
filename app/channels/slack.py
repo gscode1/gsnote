@@ -5,6 +5,7 @@ Telegram polling. Proactive push is unrestricted (chat.postMessage anytime),
 nudge buttons are Block Kit actions. DMs only: a personal bot doesn't need
 channel routing.
 """
+import asyncio
 import logging
 
 import httpx
@@ -40,12 +41,33 @@ class SlackChannel(Channel):
 
         @self._app.event("message")
         async def _message(event: dict) -> None:
-            await self._on_message(event)
+            # bolt acks only after the listener returns, and Slack retries unacked
+            # events after ~3s — an LLM turn takes longer, so process in the
+            # background or every note gets saved twice.
+            task = asyncio.create_task(self._on_message(event))
+            task.add_done_callback(self._log_task_failure)
+
+        @self._app.command("/space")
+        async def _space(ack, command, respond) -> None:
+            await ack()
+            user_id = command.get("user_id")
+            if user_id not in self._allowed:
+                await respond("Sorry, you're not authorized to use this bot.")
+                return
+            if self._command_handler:
+                reply = await self._command_handler(user_id, "space", (command.get("text") or "").strip())
+                if reply:
+                    await respond(reply)
 
         @self._app.action("nudge")
         async def _nudge(ack, body, client) -> None:
             await ack()
             await self._on_nudge(body, client)
+
+    @staticmethod
+    def _log_task_failure(task: asyncio.Task) -> None:
+        if not task.cancelled() and task.exception():
+            logger.error("message handling failed", exc_info=task.exception())
 
     def on_message(self, handler: MessageHandler) -> None:
         self._message_handler = handler
@@ -113,14 +135,8 @@ class SlackChannel(Channel):
         text = (event.get("text") or "").strip()
         if not text:
             return
-        # "/space foo bar" -> command="space", args="foo bar" (typed as a DM, same as Telegram)
-        if text.startswith("/"):
-            parts = text[1:].split(maxsplit=1)
-            if self._command_handler:
-                reply = await self._command_handler(user_id, parts[0].lower(), parts[1] if len(parts) > 1 else "")
-                if reply:
-                    await self.send(user_id, reply)
-            return
+        # ponytail: no typed-"/" branch — Slack intercepts "/cmd" client-side and
+        # never posts it as a message; /space arrives via the slash-command handler.
         if self._message_handler:
             await self._message_handler(user_id, text)
 
@@ -140,7 +156,18 @@ class SlackChannel(Channel):
                     url, headers={"Authorization": f"Bearer {self._bot_token}"}, timeout=60
                 )
                 resp.raise_for_status()
-                transcript = await transcribe(resp.content)
+        except httpx.HTTPError as e:
+            logger.warning("voice download failed: %s", e)
+            await self.send(user_id, "Sorry, I couldn't download that voice message.")
+            return
+
+        try:
+            # Slack clips are usually m4a — pass the real type, not the ogg default
+            transcript = await transcribe(
+                resp.content,
+                filename=file_info.get("name") or "clip",
+                content_type=file_info.get("mimetype") or "audio/ogg",
+            )
         except STTError as e:
             logger.warning("transcription failed: %s", e)
             await self.send(user_id, "Sorry, I couldn't transcribe that voice message.")

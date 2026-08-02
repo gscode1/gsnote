@@ -126,7 +126,7 @@ Minimum (required when `CHANNEL=telegram`):
 | `TELEGRAM_BOT_TOKEN` | From BotFather |
 | `TELEGRAM_ALLOWED_USER_IDS` | Your Telegram id(s) — empty = bot refuses to start |
 
-For `CHANNEL=slack` instead: `SLACK_BOT_TOKEN` (xoxb-), `SLACK_APP_TOKEN` (xapp-, Socket Mode), `SLACK_ALLOWED_USER_IDS` (your Slack user id, U...). Slack app setup: Socket Mode on, bot scopes `chat:write` + `im:history` (+ `files:read` for voice), subscribe to `message.im`. Commands like `/space work` are typed as plain DM text.
+For `CHANNEL=slack` instead: `SLACK_BOT_TOKEN` (xoxb-), `SLACK_APP_TOKEN` (xapp-, Socket Mode), `SLACK_ALLOWED_USER_IDS` (your Slack user id, U...). Slack app setup: Socket Mode on, bot scopes `chat:write` + `im:history` + `commands` (+ `files:read` for voice), subscribe to `message.im`, and create a `/space` slash command (no request URL needed — Socket Mode delivers it).
 
 Useful optional vars:
 
