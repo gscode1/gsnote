@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/gscode1/gsnote/actions/workflows/test.yml/badge.svg)](https://github.com/gscode1/gsnote/actions/workflows/test.yml)
 
-A personal memory bot for Telegram. Send notes, ask questions later, get a weekly nudge so nothing is forgotten.
+A personal memory bot you chat with — Telegram or Slack today, other channels pluggable via the `Channel` adapter interface. Send notes, ask questions later, get a weekly nudge so nothing is forgotten.
 
 Self-hosted · single-user · your own LLM key · Apache-2.0
 
@@ -32,9 +32,8 @@ Every answer cites when each note was saved, so "what did we decide last month?"
 
 ## What you need
 
-1. A [Telegram bot token](https://t.me/BotFather)
-2. Your Telegram user id ([@userinfobot](https://t.me/userinfobot))
-3. An LLM API key (OpenRouter, Anthropic, or any OpenAI-compatible provider)
+1. A channel: a [Telegram bot token](https://t.me/BotFather) and your Telegram user id ([@userinfobot](https://t.me/userinfobot)) — or a Slack app (see Config below)
+2. An LLM API key (OpenRouter, Anthropic, or any OpenAI-compatible provider)
 
 ---
 
@@ -61,7 +60,7 @@ docker compose up -d
 
 ### Verify it works
 
-Open your bot in Telegram. You should see an exchange like:
+Open your bot in Telegram (or a DM in Slack, if `CHANNEL=slack`). You should see an exchange like:
 
 > **You:** I told the landlord I'd fix the leaky tap by Friday
 >
