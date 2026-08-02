@@ -178,8 +178,12 @@ def memory_agent() -> Agent[NoteDeps, str]:
             window_days: If set, attach the user's notes from the last N days.
             category: Optional filter — one of idea, intention, meeting, task, note.
         """
+        if not message.strip():
+            raise ModelRetry("Cannot set a reminder with an empty message. Ask what to remind about.")
         if kind not in reminders.KINDS:
             raise ModelRetry("kind must be one of: once, daily, weekly")
+        if window_days is not None and window_days < 1:
+            raise ModelRetry("window_days must be at least 1.")
         if kind == "weekly" and (weekday is None or not 0 <= weekday <= 6):
             raise ModelRetry("weekly reminders need weekday 0 (Monday) .. 6 (Sunday)")
         if kind == "once":
