@@ -302,19 +302,30 @@ async def handle_command(user_id: str, command: str, args: str) -> str:
             return str(e)
         return f"Timezone set to {tz}."
     if command == "briefing":
-        if args == "on":
-            briefing.set_briefing_enabled(user_id, True)
+        parts = args.split()
+        action = parts[0].lower() if parts else ""
+        if action == "on":
+            tz_name = spaces.get_timezone(user_id)
+            if not tz_name:
+                return "Set your timezone first with /timezone Europe/Warsaw, then use /briefing on."
+            if len(parts) > 2:
+                return "Use /briefing on [HH:MM], for example /briefing on 08:30."
+            try:
+                briefing.set_briefing_enabled(user_id, True, parts[1] if len(parts) == 2 else None)
+            except ValueError as e:
+                return str(e)
             return (
-                "Daily briefing on. Each morning I'll send you one message with your "
-                "notes due that day. Stop anytime with /briefing off."
+                f"Daily briefing on at {briefing.get_briefing_time(user_id)} {tz_name}. "
+                "Stop anytime with /briefing off."
             )
-        if args == "off":
+        if action == "off":
             briefing.set_briefing_enabled(user_id, False)
             return "Daily briefing off."
         state = "on" if briefing.briefing_enabled(user_id) else "off"
+        tz_name = spaces.get_timezone(user_id) or "timezone not set (UTC fallback)"
         return (
-            f"Daily briefing: {state}. Toggle with /briefing on|off — one morning "
-            "message listing your notes due that day."
+            f"Daily briefing: {state}, {briefing.get_briefing_time(user_id)} {tz_name}. "
+            "Use /briefing on [HH:MM] or /briefing off."
         )
     if command == "space":
         if args:
@@ -334,7 +345,7 @@ async def handle_command(user_id: str, command: str, args: str) -> str:
             "• /space <name> — switch to (or create) a space\n"
             "• /space — show active space and your spaces\n"
             "• /timezone <IANA name> — set local time, e.g. Europe/Warsaw\n"
-            "• /briefing on|off — morning message with your notes due that day"
+            "• /briefing on [HH:MM]|off — local-time message with notes due that day"
         )
     return "Unknown command. Try /space."
 

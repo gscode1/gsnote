@@ -9,6 +9,7 @@ from app import briefing, capture
 from app.briefing import briefing_enabled, notes_due_today, run_briefing, set_briefing_enabled
 from app.capture import Classification
 from app.db import cursor, get_conn
+from app.spaces import set_timezone
 
 
 def _insert_note(
@@ -70,6 +71,12 @@ async def test_unparseable_model_date_becomes_null(_classify_with_date):
     assert note["due_date"] is None
 
 
+def test_briefing_time_defaults_and_persists():
+    assert briefing.get_briefing_time("alice") == "08:00"
+    set_briefing_enabled("alice", True, "09:30")
+    assert briefing.get_briefing_time("alice") == "09:30"
+
+
 def test_opt_in_defaults_off_and_persists():
     assert briefing_enabled("alice") is False  # default off
 
@@ -107,6 +114,28 @@ def test_due_today_filtering():
     assert due in ids
     assert due_other_space in ids  # briefing spans the owner's spaces
     assert len(ids) == 2  # tomorrow, undated, deleted, and bob's are all excluded
+
+
+@pytest.mark.anyio
+async def test_run_briefing_waits_for_user_local_time_and_is_local_day_idempotent():
+    set_timezone("alice", "Europe/Warsaw")
+    set_briefing_enabled("alice", True, "09:00")
+    _insert_note("local due note", source="alice", due_date="2026-08-02")
+    sent = []
+
+    async def fake_send(user_id, message):
+        sent.append((user_id, message))
+
+    before = datetime(2026, 8, 2, 6, 0, tzinfo=timezone.utc)  # 08:00 local
+    result = await run_briefing(fake_send, now_utc=before)
+    assert sent == []
+    assert result["sent"] is False
+
+    at_time = datetime(2026, 8, 2, 7, 0, tzinfo=timezone.utc)  # 09:00 local
+    await run_briefing(fake_send, now_utc=at_time)
+    await run_briefing(fake_send, now_utc=at_time + timedelta(minutes=30))
+    assert len(sent) == 1
+    assert "2026-08-02" in sent[0][1]
 
 
 @pytest.mark.anyio

@@ -53,9 +53,6 @@ class Settings(BaseSettings):
     # --- reminders ---
     reminder_cron: str = "* * * * *"  # fixed worker tick; reminder times live in SQLite
 
-    # --- briefing ---
-    briefing_cron: str = "0 8 * * *"  # daily commitment briefing for opted-in users
-
     # --- graph ---
     semantic_knn_k: int = 5
     semantic_similarity_threshold: float = 0.75
