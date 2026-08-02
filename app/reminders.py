@@ -13,13 +13,14 @@ from zoneinfo import ZoneInfo
 
 from app.config import get_settings
 from app.db import cursor, get_conn
-from app.reporting import notes_in_window
+from app.reporting import notes_in_window, summarize_notes
 from app.resurfacing import phrase_nudge
 from app.spaces import get_timezone, normalize_timezone
 
 logger = logging.getLogger(__name__)
 
 KINDS = {"once", "daily", "weekly"}
+ACTION_TYPES = {"notify", "digest"}
 WINDOW_MODES = {"rolling_days", "rolling_hours", "previous_local_day"}
 DEFAULT_LOCAL_TIME = "08:00"
 DEFAULT_TIMEZONE = "UTC"
@@ -56,19 +57,24 @@ def normalize_window(
 ) -> tuple[str | None, int | None]:
     """Validate a query window while preserving the legacy window_days field."""
     if window_mode is None:
-        return ("rolling_days", window_days) if window_days is not None else (None, None)
+        if window_days is None:
+            return (None, None)
+        if window_days < 1:
+            raise ValueError("rolling_days requires window_days >= 1")
+        return "rolling_days", window_days
     if window_mode not in WINDOW_MODES:
         raise ValueError(f"window_mode must be one of: {', '.join(sorted(WINDOW_MODES))}")
     if window_mode == "rolling_days":
-        if window_days is None or window_days < 1:
-            raise ValueError("rolling_days requires window_days >= 1")
-        return window_mode, window_days
+        days = window_days if window_days is not None else window_value
+        if days is None or days < 1:
+            raise ValueError("rolling_days requires window_days or window_value >= 1")
+        return window_mode, days
     if window_mode == "rolling_hours":
         if window_value is None or window_value < 1:
             raise ValueError("rolling_hours requires window_value >= 1")
         return window_mode, window_value
-    if window_value is not None:
-        raise ValueError("previous_local_day does not accept window_value")
+    if window_value is not None or window_days is not None:
+        raise ValueError("previous_local_day does not accept window values")
     return window_mode, None
 
 
@@ -131,6 +137,85 @@ def compute_next_run_at(
     return _iso(target_utc)
 
 
+def create_schedule(
+    user_id: str,
+    space: str,
+    message: str,
+    kind: str,
+    weekday: int | None = None,
+    fire_date: str | None = None,
+    window_days: int | None = None,
+    category: str | None = None,
+    local_time: str = DEFAULT_LOCAL_TIME,
+    tz_name: str | None = None,
+    window_mode: str | None = None,
+    window_value: int | None = None,
+    action_type: str = "notify",
+) -> str:
+    if action_type not in ACTION_TYPES:
+        raise ValueError(f"action_type must be one of: {', '.join(sorted(ACTION_TYPES))}")
+    if action_type == "digest" and window_mode is None and window_days is None:
+        raise ValueError("digest schedules require a query window")
+    if action_type == "notify" and (
+        window_mode is not None or window_days is not None or window_value is not None
+    ):
+        raise ValueError("notification schedules cannot specify a query window")
+    now = _utc()
+    tz_name = normalize_timezone(tz_name or get_timezone(user_id) or DEFAULT_TIMEZONE)
+    local_time = normalize_local_time(local_time)
+    window_mode, window_value = normalize_window(window_days, window_mode, window_value)
+    # Store one canonical value for each mode; notification schedules leave these NULL.
+    window_days = window_value if window_mode == "rolling_days" else None
+    window_value = window_value if window_mode == "rolling_hours" else None
+    next_run_at = compute_next_run_at(
+        kind, local_time, tz_name, weekday=weekday, fire_date=fire_date, ref_utc=now
+    )
+    reminder_id = str(uuid.uuid4())
+    with cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO reminders
+              (id, user_id, space, message, kind, weekday, fire_date,
+               window_days, category, window_mode, window_value, local_time,
+               timezone, next_run_at, created_at, action_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                reminder_id, user_id, space, message, kind, weekday, fire_date,
+                window_days, category, window_mode, window_value, local_time,
+                tz_name, next_run_at, _iso(now), action_type,
+            ),
+        )
+    return reminder_id
+
+
+def create_digest(
+    user_id: str,
+    space: str,
+    message: str,
+    kind: str,
+    weekday: int | None = None,
+    fire_date: str | None = None,
+    window_days: int | None = None,
+    category: str | None = None,
+    local_time: str = DEFAULT_LOCAL_TIME,
+    tz_name: str | None = None,
+    window_mode: str | None = None,
+    window_value: int | None = None,
+    action_type: str = "digest",
+) -> str:
+    if action_type != "digest":
+        raise ValueError("create_digest requires action_type=digest")
+    if window_mode is None and window_days is None:
+        raise ValueError("digest schedules require a query window")
+    return create_schedule(
+        user_id, space, message, kind, weekday=weekday, fire_date=fire_date,
+        window_days=window_days, category=category, local_time=local_time,
+        tz_name=tz_name, window_mode=window_mode, window_value=window_value,
+        action_type="digest",
+    )
+
+
 def create_reminder(
     user_id: str,
     space: str,
@@ -144,34 +229,19 @@ def create_reminder(
     tz_name: str | None = None,
     window_mode: str | None = None,
     window_value: int | None = None,
+    action_type: str | None = None,
 ) -> str:
-    now = _utc()
-    tz_name = normalize_timezone(tz_name or get_timezone(user_id) or DEFAULT_TIMEZONE)
-    local_time = normalize_local_time(local_time)
-    window_mode, window_value = normalize_window(window_days, window_mode, window_value)
-    next_run_at = compute_next_run_at(
-        kind, local_time, tz_name, weekday=weekday, fire_date=fire_date, ref_utc=now
+    if action_type is None:
+        action_type = "digest" if (window_mode is not None or window_days is not None) else "notify"
+    return create_schedule(
+        user_id, space, message, kind, weekday=weekday, fire_date=fire_date,
+        window_days=window_days, category=category, local_time=local_time,
+        tz_name=tz_name, window_mode=window_mode, window_value=window_value,
+        action_type=action_type,
     )
-    reminder_id = str(uuid.uuid4())
-    with cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO reminders
-              (id, user_id, space, message, kind, weekday, fire_date,
-               window_days, category, window_mode, window_value, local_time,
-               timezone, next_run_at, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                reminder_id, user_id, space, message, kind, weekday, fire_date,
-                window_days, category, window_mode, window_value, local_time,
-                tz_name, next_run_at, _iso(now),
-            ),
-        )
-    return reminder_id
 
 
-def list_reminders(user_id: str) -> list[dict]:
+def list_schedules(user_id: str) -> list[dict]:
     rows = get_conn().execute(
         "SELECT * FROM reminders WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at",
         (user_id,),
@@ -179,13 +249,19 @@ def list_reminders(user_id: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def cancel_reminder(user_id: str, reminder_id: str) -> bool:
+list_reminders = list_schedules
+
+
+def cancel_schedule(user_id: str, reminder_id: str) -> bool:
     with cursor() as cur:
         cur.execute(
             "UPDATE reminders SET deleted_at = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
             (_iso(datetime.now(timezone.utc)), reminder_id, user_id),
         )
         return cur.rowcount == 1
+
+
+cancel_reminder = cancel_schedule
 
 
 def _note_utc(value: str) -> datetime:
@@ -202,8 +278,9 @@ def _query_notes(reminder: dict, now: datetime) -> list[dict] | None:
         return None
 
     if mode == "rolling_days":
+        days = reminder.get("window_days") or reminder.get("window_value")
         return notes_in_window(
-            reminder["window_days"], reminder["category"],
+            days, reminder.get("category"),
             space=reminder["space"], owner=reminder["user_id"],
         )
 
@@ -213,16 +290,30 @@ def _query_notes(reminder: dict, now: datetime) -> list[dict] | None:
         (reminder["user_id"], reminder["space"]),
     ).fetchall()
     tz = ZoneInfo(reminder["timezone"])
+    filtered = [dict(row) for row in rows]
+    if reminder.get("category"):
+        filtered = [r for r in filtered if r.get("category") == reminder["category"]]
     if mode == "rolling_hours":
         cutoff = now - timedelta(hours=reminder["window_value"])
-        return [dict(row) for row in rows if _note_utc(row["created_at"]) >= cutoff]
+        return [r for r in filtered if _note_utc(r["created_at"]) >= cutoff]
     if mode == "previous_local_day":
         yesterday = now.astimezone(tz).date() - timedelta(days=1)
         return [
-            dict(row) for row in rows
-            if _note_utc(row["created_at"]).astimezone(tz).date() == yesterday
+            r for r in filtered
+            if _note_utc(r["created_at"]).astimezone(tz).date() == yesterday
         ]
     raise ValueError(f"Unknown window mode: {mode}")
+
+
+def _describe_window(reminder: dict) -> str:
+    mode = reminder.get("window_mode")
+    if mode == "previous_local_day":
+        return "yesterday"
+    if mode == "rolling_hours":
+        return f"the last {reminder.get('window_value')} hours"
+    if mode == "rolling_days" or reminder.get("window_days") is not None:
+        return f"the last {reminder.get('window_days')} day(s)"
+    return "the time window"
 
 
 def _claim(reminder_id: str, now: datetime) -> str | None:
@@ -291,16 +382,23 @@ def _complete(
 
 
 async def _fire(send_fn, reminder: dict, token: str, now: datetime) -> dict:
-    message = f"⏰ {reminder['message']}"
     note_ids: list[str] = []
-    if reminder.get("window_mode") is not None or reminder.get("window_days") is not None:
+    action_type = reminder.get("action_type")
+    if not action_type:
+        action_type = "digest" if (reminder.get("window_mode") or reminder.get("window_days")) else "notify"
+
+    if action_type == "digest":
         notes = _query_notes(reminder, now)
         if not notes:
             _complete(reminder, token, now, note_ids=[])
             return {"id": reminder["id"], "sent": False, "reason": "no notes in window"}
-        body = await phrase_nudge(notes)
-        message = f"⏰ {reminder['message']}\n{body}"
+        window_desc = _describe_window(reminder)
+        summary = await summarize_notes(notes, window_desc)
+        label = reminder.get("message")
+        message = f"📊 Digest ({label}):\n{summary}" if label else f"📊 Digest:\n{summary}"
         note_ids = [n["id"] for n in notes]
+    else:
+        message = f"⏰ {reminder['message']}"
 
     result = send_fn(reminder["user_id"], message)
     if hasattr(result, "__await__"):

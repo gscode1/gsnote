@@ -105,13 +105,14 @@ def _capture_tool_return(tool_name: str, args: dict, captured: dict):
 
 
 @pytest.mark.anyio
-async def test_create_reminder_tool_persists_local_schedule():
+@pytest.mark.anyio
+async def test_create_digest_tool_persists_local_schedule():
     agent = memory_agent()
     set_timezone("u1", "Europe/Warsaw")
     with agent.override(
         model=FunctionModel(
             _first_call_then_text(
-                "create_reminder",
+                "create_digest",
                 {
                     "message": "daily summary",
                     "kind": "daily",
@@ -121,33 +122,35 @@ async def test_create_reminder_tool_persists_local_schedule():
             )
         )
     ):
-        result = await agent.run("remind me every day at 9pm", deps=NoteDeps(user_id="u1"))
+        result = await agent.run("send me a daily summary every day at 9pm", deps=NoteDeps(user_id="u1"))
 
     assert result.output == "done"
     row = get_conn().execute(
-        "SELECT local_time, timezone, next_run_at, window_mode FROM reminders WHERE user_id = ?", ("u1",)
+        "SELECT local_time, timezone, next_run_at, window_mode, action_type FROM reminders WHERE user_id = ?", ("u1",)
     ).fetchone()
     assert row["local_time"] == "21:00"
     assert row["timezone"] == "Europe/Warsaw"
     assert row["next_run_at"] is not None
     assert row["window_mode"] == "previous_local_day"
+    assert row["action_type"] == "digest"
 
 
 @pytest.mark.anyio
-async def test_list_reminders_tool_shows_scope_and_window():
+async def test_list_schedules_tool_shows_scope_and_window():
     agent = memory_agent()
     set_timezone("u1", "Europe/Warsaw")
-    reminders.create_reminder(
+    reminders.create_digest(
         "u1", "platform", "daily summary", "daily",
         local_time="21:00", window_mode="previous_local_day",
     )
     captured: dict = {}
-    with agent.override(model=FunctionModel(_capture_tool_return("list_reminders", {}, captured))):
-        await agent.run("show my reminders", deps=NoteDeps(user_id="u1"))
+    with agent.override(model=FunctionModel(_capture_tool_return("list_schedules", {}, captured))):
+        await agent.run("show my schedules", deps=NoteDeps(user_id="u1"))
 
     assert "platform" in captured["result"]
     assert "21:00 Europe/Warsaw" in captured["result"]
     assert "yesterday" in captured["result"]
+    assert "[digest]" in captured["result"]
 
 
 @pytest.mark.anyio
@@ -185,19 +188,40 @@ async def test_get_current_space_tool_defaults_and_switch():
 
 
 @pytest.mark.anyio
-async def test_create_reminder_tool_persists_owner_scoped_row():
+async def test_create_digest_tool_persists_owner_scoped_row():
     agent = memory_agent()
 
     captured: dict = {}
-    args = {"message": "figure out service mesh", "kind": "weekly", "weekday": 1,
+    args = {"message": "ideas digest", "kind": "weekly", "weekday": 1,
             "window_days": 7, "category": "idea"}
-    with agent.override(model=FunctionModel(_capture_tool_return("create_reminder", args, captured))):
-        await agent.run("remind me weekly about my ideas from last 7 days",
+    with agent.override(model=FunctionModel(_capture_tool_return("create_digest", args, captured))):
+        await agent.run("send me a weekly digest of my ideas from last 7 days",
                         deps=NoteDeps(user_id="u1", space="work"))
 
-    assert "Reminder set" in captured["result"]
+    assert "Digest scheduled" in captured["result"]
     row = get_conn().execute("SELECT * FROM reminders").fetchone()
     assert row is not None
     assert row["user_id"] == "u1" and row["space"] == "work"
     assert row["kind"] == "weekly" and row["weekday"] == 1
     assert row["window_days"] == 7 and row["category"] == "idea"
+    assert row["action_type"] == "digest"
+
+
+@pytest.mark.anyio
+async def test_create_schedule_tool_persists_notify_row():
+    agent = memory_agent()
+    set_timezone("u1", "Europe/Warsaw")
+
+    captured: dict = {}
+    args = {"message": "water the plants", "kind": "daily", "local_time": "09:00"}
+    with agent.override(model=FunctionModel(_capture_tool_return("create_schedule", args, captured))):
+        await agent.run("remind me to water plants every day at 9am",
+                        deps=NoteDeps(user_id="u1", space="work"))
+
+    assert "Notification schedule set" in captured["result"]
+    row = get_conn().execute("SELECT * FROM reminders").fetchone()
+    assert row is not None
+    assert row["user_id"] == "u1" and row["space"] == "work"
+    assert row["kind"] == "daily" and row["message"] == "water the plants"
+    assert row["action_type"] == "notify"
+
