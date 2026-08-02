@@ -136,3 +136,22 @@ async def test_get_current_space_tool_defaults_and_switch():
     with agent.override(model=FunctionModel(_capture_tool_return("get_current_space", {}, captured))):
         await agent.run("which space am I in?", deps=NoteDeps(user_id="u1"))
     assert captured["result"] == "work"
+
+
+@pytest.mark.anyio
+async def test_create_reminder_tool_persists_owner_scoped_row():
+    agent = memory_agent()
+
+    captured: dict = {}
+    args = {"message": "figure out service mesh", "kind": "weekly", "weekday": 1,
+            "window_days": 7, "category": "idea"}
+    with agent.override(model=FunctionModel(_capture_tool_return("create_reminder", args, captured))):
+        await agent.run("remind me weekly about my ideas from last 7 days",
+                        deps=NoteDeps(user_id="u1", space="work"))
+
+    assert "Reminder set" in captured["result"]
+    row = get_conn().execute("SELECT * FROM reminders").fetchone()
+    assert row is not None
+    assert row["user_id"] == "u1" and row["space"] == "work"
+    assert row["kind"] == "weekly" and row["weekday"] == 1
+    assert row["window_days"] == 7 and row["category"] == "idea"

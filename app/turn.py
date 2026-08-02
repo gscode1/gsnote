@@ -7,8 +7,10 @@ so digest responses survive restart.
 """
 from __future__ import annotations
 
+import calendar
 import logging
 from dataclasses import dataclass
+from datetime import date, datetime
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
@@ -16,7 +18,8 @@ from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.capabilities import ProcessHistory
 from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
 
-from app.capture import capture_note
+from app import reminders
+from app.capture import VALID_CATEGORIES, capture_note
 from app.config import get_settings
 from app.llm import build_model
 from app.prompts import MEMORY, prompt
@@ -87,7 +90,12 @@ def memory_agent() -> Agent[NoteDeps, str]:
         # window stays bounded regardless of how long the conversation runs.
         capabilities=[ProcessHistory(lambda msgs: trim_history(msgs))],
         # Callable so data/prompts/memory.md overrides are re-read each run.
-        instructions=lambda: prompt("memory", MEMORY),
+        # Today's date is injected so the model can resolve relative dates
+        # ("next Tuesday") into tool arguments.
+        instructions=lambda: (
+            prompt("memory", MEMORY)
+            + f"\nToday is {datetime.now().strftime('%A, %Y-%m-%d')}."
+        ),
     )
 
     @agent.tool
@@ -148,6 +156,74 @@ def memory_agent() -> Agent[NoteDeps, str]:
         """Report the user's currently active note space."""
         return get_space(ctx.deps.user_id)
 
+    @agent.tool
+    async def create_reminder(
+        ctx: RunContext[NoteDeps],
+        message: str,
+        kind: str,
+        weekday: int | None = None,
+        fire_date: str | None = None,
+        window_days: int | None = None,
+        category: str | None = None,
+    ) -> str:
+        """Schedule a reminder delivered at the daily reminder hour. Use when the user
+        asks to be reminded. For "remind me about my <category> notes from the last
+        N days", set window_days (and category) so the reminder includes those notes.
+
+        Args:
+            message: What to remind about, in the user's own words.
+            kind: 'once' (needs fire_date), 'daily', or 'weekly' (needs weekday).
+            weekday: 0=Monday .. 6=Sunday; required when kind='weekly'.
+            fire_date: YYYY-MM-DD; required when kind='once'; today or later.
+            window_days: If set, attach the user's notes from the last N days.
+            category: Optional filter — one of idea, intention, meeting, task, note.
+        """
+        if not message.strip():
+            raise ModelRetry("Cannot set a reminder with an empty message. Ask what to remind about.")
+        if kind not in reminders.KINDS:
+            raise ModelRetry("kind must be one of: once, daily, weekly")
+        if window_days is not None and window_days < 1:
+            raise ModelRetry("window_days must be at least 1.")
+        if kind == "weekly" and (weekday is None or not 0 <= weekday <= 6):
+            raise ModelRetry("weekly reminders need weekday 0 (Monday) .. 6 (Sunday)")
+        if kind == "once":
+            try:
+                when = date.fromisoformat(fire_date or "")
+            except ValueError:
+                raise ModelRetry("once reminders need fire_date as YYYY-MM-DD")
+            if when < date.today():
+                raise ModelRetry(f"{fire_date} is in the past — today is {date.today()}")
+        if category is not None and category not in VALID_CATEGORIES:
+            raise ModelRetry(f"category must be one of {sorted(VALID_CATEGORIES)}")
+        rid = reminders.create_reminder(
+            ctx.deps.user_id, ctx.deps.space, message.strip(), kind,
+            weekday=weekday, fire_date=fire_date,
+            window_days=window_days, category=category,
+        )
+        return f"Reminder set ({kind}, id {rid}). It fires at the morning reminder hour."
+
+    @agent.tool
+    async def list_reminders(ctx: RunContext[NoteDeps]) -> str:
+        """List the user's active reminders with their ids."""
+        rows = reminders.list_reminders(ctx.deps.user_id)
+        if not rows:
+            return "No active reminders."
+
+        def when(r: dict) -> str:
+            if r["kind"] == "weekly":
+                return f"weekly on {calendar.day_name[r['weekday']]}"
+            if r["kind"] == "once":
+                return f"once on {r['fire_date']}"
+            return "daily"
+
+        return "\n".join(f"- {r['id']}: {r['message']} ({when(r)})" for r in rows)
+
+    @agent.tool
+    async def cancel_reminder(ctx: RunContext[NoteDeps], reminder_id: str) -> str:
+        """Cancel one of the user's reminders by id (get ids from list_reminders)."""
+        ok = reminders.cancel_reminder(ctx.deps.user_id, reminder_id)
+        return "Cancelled." if ok else "No active reminder with that id."
+
     return agent
 
 
@@ -196,6 +272,18 @@ def _switch_space(user_id: str, name: str) -> str:
 
 async def handle_response(user_id: str, response: str, notification_id: str) -> None:
     record_response(notification_id, response)
+
+
+def make_reminder_sender(channel: Channel | None):
+    """send_fn for reminders: plain owner-scoped message, no buttons."""
+
+    async def send_fn(user_id: str, message: str) -> None:
+        if channel is None:
+            logger.warning("No channel configured; reminder not sent: %s", message)
+            return
+        await channel.send(user_id, message)
+
+    return send_fn
 
 
 def make_digest_sender(channel: Channel | None):
