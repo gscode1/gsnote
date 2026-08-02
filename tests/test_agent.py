@@ -7,7 +7,7 @@ import pytest
 from pydantic_ai import ModelMessage, ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-from app import capture
+from app import capture, reminders
 from app.capture import Classification
 from app.db import get_conn
 from app.spaces import set_space, set_timezone
@@ -131,6 +131,23 @@ async def test_create_reminder_tool_persists_local_schedule():
     assert row["timezone"] == "Europe/Warsaw"
     assert row["next_run_at"] is not None
     assert row["window_mode"] == "previous_local_day"
+
+
+@pytest.mark.anyio
+async def test_list_reminders_tool_shows_scope_and_window():
+    agent = memory_agent()
+    set_timezone("u1", "Europe/Warsaw")
+    reminders.create_reminder(
+        "u1", "platform", "daily summary", "daily",
+        local_time="21:00", window_mode="previous_local_day",
+    )
+    captured: dict = {}
+    with agent.override(model=FunctionModel(_capture_tool_return("list_reminders", {}, captured))):
+        await agent.run("show my reminders", deps=NoteDeps(user_id="u1"))
+
+    assert "platform" in captured["result"]
+    assert "21:00 Europe/Warsaw" in captured["result"]
+    assert "yesterday" in captured["result"]
 
 
 @pytest.mark.anyio

@@ -240,14 +240,32 @@ def memory_agent() -> Agent[NoteDeps, str]:
         if not rows:
             return "No active reminders."
 
-        def when(r: dict) -> str:
+        def schedule(r: dict) -> str:
             if r["kind"] == "weekly":
-                return f"weekly on {calendar.day_name[r['weekday']]}"
-            if r["kind"] == "once":
-                return f"once on {r['fire_date']}"
-            return "daily"
+                recurrence = f"weekly on {calendar.day_name[r['weekday']]}"
+            elif r["kind"] == "once":
+                recurrence = f"once on {r['fire_date']}"
+            else:
+                recurrence = "daily"
+            local_time = r.get("local_time") or reminders.DEFAULT_LOCAL_TIME
+            tz_name = r.get("timezone") or reminders.DEFAULT_TIMEZONE
+            return f"{recurrence} at {local_time} {tz_name}"
 
-        return "\n".join(f"- {r['id']}: {r['message']} ({when(r)})" for r in rows)
+        def window(r: dict) -> str:
+            mode = r.get("window_mode")
+            if mode == "previous_local_day":
+                return "yesterday"
+            if mode == "rolling_hours":
+                return f"last {r['window_value']} hours"
+            if mode == "rolling_days" or r.get("window_days") is not None:
+                return f"last {r['window_days']} days"
+            return "message only"
+
+        return "\n".join(
+            f"- {r['id']}: {r['message']} "
+            f"({schedule(r)}; space: {r['space']}; window: {window(r)})"
+            for r in rows
+        )
 
     @agent.tool
     async def cancel_reminder(ctx: RunContext[NoteDeps], reminder_id: str) -> str:
