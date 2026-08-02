@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     resurfacing_cooldown_days: int = 30
 
     # --- reminders ---
-    reminder_cron: str = "0 8 * * *"  # daily tick; all reminders fire at this hour
+    reminder_cron: str = "* * * * *"  # fixed worker tick; reminder times live in SQLite
 
     # --- briefing ---
     briefing_cron: str = "0 8 * * *"  # daily commitment briefing for opted-in users

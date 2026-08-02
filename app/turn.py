@@ -10,9 +10,10 @@ from __future__ import annotations
 import calendar
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from functools import lru_cache
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
 from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.capabilities import ProcessHistory
@@ -171,10 +172,10 @@ def memory_agent() -> Agent[NoteDeps, str]:
         fire_date: str | None = None,
         window_days: int | None = None,
         category: str | None = None,
+        local_time: str | None = None,
+        timezone_name: str | None = None,
     ) -> str:
-        """Schedule a reminder delivered at the daily reminder hour. Use when the user
-        asks to be reminded. For "remind me about my <category> notes from the last
-        N days", set window_days (and category) so the reminder includes those notes.
+        """Schedule a reminder at a local wall-clock time.
 
         Args:
             message: What to remind about, in the user's own words.
@@ -182,6 +183,8 @@ def memory_agent() -> Agent[NoteDeps, str]:
             weekday: 0=Monday .. 6=Sunday; required when kind='weekly'.
             fire_date: YYYY-MM-DD; required when kind='once'; today or later.
             window_days: If set, attach the user's notes from the last N days.
+            local_time: Optional 24-hour HH:MM time, e.g. 21:00. Defaults to 08:00.
+            timezone_name: Optional IANA timezone override; otherwise the user's setting.
             category: Optional filter — one of idea, intention, meeting, task, note.
         """
         if not message.strip():
@@ -192,21 +195,31 @@ def memory_agent() -> Agent[NoteDeps, str]:
             raise ModelRetry("window_days must be at least 1.")
         if kind == "weekly" and (weekday is None or not 0 <= weekday <= 6):
             raise ModelRetry("weekly reminders need weekday 0 (Monday) .. 6 (Sunday)")
+        tz_name = timezone_name or spaces.get_timezone(ctx.deps.user_id) or reminders.DEFAULT_TIMEZONE
+        if local_time is not None and timezone_name is None and spaces.get_timezone(ctx.deps.user_id) is None:
+            raise ModelRetry("Set your timezone first with /timezone Europe/Warsaw, then retry this reminder.")
+        try:
+            local_time = reminders.normalize_local_time(local_time or reminders.DEFAULT_LOCAL_TIME)
+            tz_name = reminders.normalize_timezone(tz_name)
+        except ValueError as e:
+            raise ModelRetry(str(e))
         if kind == "once":
             try:
                 when = date.fromisoformat(fire_date or "")
             except ValueError:
                 raise ModelRetry("once reminders need fire_date as YYYY-MM-DD")
-            if when < date.today():
-                raise ModelRetry(f"{fire_date} is in the past — today is {date.today()}")
+            today = datetime.now(timezone.utc).astimezone(ZoneInfo(tz_name)).date()
+            if when < today:
+                raise ModelRetry(f"{fire_date} is in the past — today is {today} in {tz_name}")
         if category is not None and category not in VALID_CATEGORIES:
             raise ModelRetry(f"category must be one of {sorted(VALID_CATEGORIES)}")
         rid = reminders.create_reminder(
             ctx.deps.user_id, ctx.deps.space, message.strip(), kind,
             weekday=weekday, fire_date=fire_date,
             window_days=window_days, category=category,
+            local_time=local_time, tz_name=tz_name,
         )
-        return f"Reminder set ({kind}, id {rid}). It fires at the morning reminder hour."
+        return f"Reminder set ({kind}) for {local_time} {tz_name} (id {rid})."
 
     @agent.tool
     async def list_reminders(ctx: RunContext[NoteDeps]) -> str:

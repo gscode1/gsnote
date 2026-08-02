@@ -10,7 +10,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from app import capture
 from app.capture import Classification
 from app.db import get_conn
-from app.spaces import set_space
+from app.spaces import set_space, set_timezone
 from app.turn import NoteDeps, memory_agent
 
 
@@ -102,6 +102,29 @@ def _capture_tool_return(tool_name: str, args: dict, captured: dict):
         return ModelResponse(parts=[ToolCallPart(tool_name, args)])
 
     return fn
+
+
+@pytest.mark.anyio
+async def test_create_reminder_tool_persists_local_schedule():
+    agent = memory_agent()
+    set_timezone("u1", "Europe/Warsaw")
+    with agent.override(
+        model=FunctionModel(
+            _first_call_then_text(
+                "create_reminder",
+                {"message": "daily summary", "kind": "daily", "local_time": "21:00"},
+            )
+        )
+    ):
+        result = await agent.run("remind me every day at 9pm", deps=NoteDeps(user_id="u1"))
+
+    assert result.output == "done"
+    row = get_conn().execute(
+        "SELECT local_time, timezone, next_run_at FROM reminders WHERE user_id = ?", ("u1",)
+    ).fetchone()
+    assert row["local_time"] == "21:00"
+    assert row["timezone"] == "Europe/Warsaw"
+    assert row["next_run_at"] is not None
 
 
 @pytest.mark.anyio
