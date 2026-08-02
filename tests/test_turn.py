@@ -12,7 +12,7 @@ from app.capture import Classification
 from app.channels import Channel
 from app.db import cursor, get_conn
 from app.resurfacing import Digest
-from app.spaces import get_space
+from app.spaces import get_space, set_timezone
 from app.turn import (
     _history_by_user,
     handle_command,
@@ -158,7 +158,11 @@ async def test_briefing_command_defaults_off_and_toggles():
     assert briefing_enabled("u1") is False
 
     reply = await handle_command("u1", "briefing", "on")
+    assert "timezone first" in reply.lower()
+    set_timezone("u1", "Europe/Warsaw")
+    reply = await handle_command("u1", "briefing", "on 09:30")
     assert "on" in reply.lower()
+    assert "09:30 Europe/Warsaw" in reply
     assert briefing_enabled("u1") is True
 
     reply = await handle_command("u1", "briefing", "off")

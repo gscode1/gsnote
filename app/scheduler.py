@@ -31,31 +31,25 @@ def start_scheduler(send_fn, plain_send_fn) -> AsyncIOScheduler:
 
         _scheduler.add_job(_job, trigger, id="resurfacing_digest")
 
-    async def _reminders_job():
+    async def _worker_job():
         try:
             result = await run_reminders(plain_send_fn)
             logger.info("reminder run: %s", result)
         except Exception:
-            logger.exception("reminder job failed")
+            logger.exception("reminder worker failed")
+        try:
+            result = await run_briefing(plain_send_fn)
+            logger.info("briefing run: %s", result)
+        except Exception:
+            logger.exception("briefing worker failed")
 
     _scheduler.add_job(
-        _reminders_job,
+        _worker_job,
         CronTrigger.from_crontab(settings.reminder_cron),
         id="reminders_tick",
         max_instances=1,
         coalesce=True,
         misfire_grace_time=60,
-    )
-
-    async def _briefing_job():
-        try:
-            result = await run_briefing(plain_send_fn)
-            logger.info("briefing run: %s", result)
-        except Exception:
-            logger.exception("briefing job failed")
-
-    _scheduler.add_job(
-        _briefing_job, CronTrigger.from_crontab(settings.briefing_cron), id="daily_briefing"
     )
 
     _scheduler.start()
