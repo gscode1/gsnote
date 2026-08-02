@@ -39,7 +39,12 @@ def start_scheduler(send_fn, plain_send_fn) -> AsyncIOScheduler:
             logger.exception("reminder job failed")
 
     _scheduler.add_job(
-        _reminders_job, CronTrigger.from_crontab(settings.reminder_cron), id="reminders_tick"
+        _reminders_job,
+        CronTrigger.from_crontab(settings.reminder_cron),
+        id="reminders_tick",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=60,
     )
 
     async def _briefing_job():

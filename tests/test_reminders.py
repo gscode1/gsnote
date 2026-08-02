@@ -1,10 +1,17 @@
+import asyncio
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
 from app.db import cursor, get_conn
-from app.reminders import _is_due, cancel_reminder, create_reminder, list_reminders, run_reminders
+from app.reminders import (
+    cancel_reminder,
+    compute_next_run_at,
+    create_reminder,
+    list_reminders,
+    run_reminders,
+)
 
 
 def _reminder(
@@ -16,15 +23,21 @@ def _reminder(
     fire_date=None,
     window_days=None,
     category=None,
-    last_fired_on=None,
+    local_time="00:00",
+    tz_name="UTC",
+    due=True,
 ) -> dict:
     rid = create_reminder(
         user_id, space, message, kind, weekday=weekday,
         fire_date=fire_date, window_days=window_days, category=category,
+        local_time=local_time, tz_name=tz_name,
     )
-    if last_fired_on:
-        with cursor() as cur:
-            cur.execute("UPDATE reminders SET last_fired_on = ? WHERE id = ?", (last_fired_on, rid))
+    with cursor() as cur:
+        if due:
+            cur.execute(
+                "UPDATE reminders SET next_run_at = ? WHERE id = ?",
+                ((datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat(), rid),
+            )
     return dict(get_conn().execute("SELECT * FROM reminders WHERE id = ?", (rid,)).fetchone())
 
 
@@ -41,27 +54,61 @@ def _insert_note(content: str, source: str = "alice", days_ago: int = 0, space: 
     return note_id
 
 
-def test_due_rules():
-    today = date(2026, 8, 4)  # a Tuesday, weekday()==1
-    assert _is_due(_reminder(kind="daily"), today)
-    assert _is_due(_reminder(kind="weekly", weekday=1), today)
-    assert not _is_due(_reminder(kind="weekly", weekday=2), today)
-    assert _is_due(_reminder(kind="once", fire_date="2026-08-04"), today)
-    assert _is_due(_reminder(kind="once", fire_date="2026-08-01"), today)  # missed day fires late
-    assert not _is_due(_reminder(kind="once", fire_date="2026-08-05"), today)
-    assert not _is_due(_reminder(kind="daily", last_fired_on=today.isoformat()), today)
+def test_migration_defaults_existing_schedule_columns():
+    reminder = _reminder(due=False)
+    assert reminder["local_time"] == "00:00"  # explicit helper override
+    assert reminder["timezone"] == "UTC"
+    assert reminder["next_run_at"] is not None
+    assert reminder["claim_token"] is None
+
+
+def test_compute_next_run_at_converts_local_time_to_utc():
+    reference = datetime(2026, 8, 2, 12, 0, tzinfo=timezone.utc)
+    assert compute_next_run_at(
+        "daily", "21:00", "Europe/Warsaw", ref_utc=reference
+    ) == "2026-08-02T19:00:00+00:00"
+
+
+def test_compute_next_run_at_handles_dst_gap_and_overlap():
+    # 02:30 does not exist on the spring-forward day; run at the first valid minute.
+    spring = compute_next_run_at(
+        "daily", "02:30", "America/New_York",
+        ref_utc=datetime(2026, 3, 8, 6, 0, tzinfo=timezone.utc),
+    )
+    assert spring == "2026-03-08T07:00:00+00:00"
+
+    # 01:30 occurs twice on fall-back; choose the first occurrence (fold=0).
+    fall = compute_next_run_at(
+        "daily", "01:30", "America/New_York",
+        ref_utc=datetime(2026, 10, 31, 20, 0, tzinfo=timezone.utc),
+    )
+    assert fall == "2026-11-01T05:30:00+00:00"
+
+
+def test_compute_next_run_at_handles_weekly_and_missed_once():
+    reference = datetime(2026, 8, 4, 12, 0, tzinfo=timezone.utc)  # Tuesday
+    weekly = compute_next_run_at(
+        "weekly", "09:00", "UTC", weekday=0, ref_utc=reference
+    )
+    assert weekly == "2026-08-10T09:00:00+00:00"
+
+    once = compute_next_run_at(
+        "once", "09:00", "UTC", fire_date="2026-08-01", ref_utc=reference
+    )
+    assert once == "2026-08-01T09:00:00+00:00"
 
 
 @pytest.mark.anyio
-async def test_message_reminder_sends_once_per_day():
+async def test_message_reminder_sends_once_per_occurrence():
     _reminder(kind="daily", message="drink water")
     sent = []
 
     async def fake_send(user_id, message):
         sent.append((user_id, message))
 
-    await run_reminders(fake_send)
-    await run_reminders(fake_send)  # same day: idempotent
+    now = datetime.now(timezone.utc)
+    await run_reminders(fake_send, now_utc=now)
+    await run_reminders(fake_send, now_utc=now)  # same occurrence: idempotent
 
     assert len(sent) == 1
     assert sent[0][0] == "alice" and "drink water" in sent[0][1]
@@ -91,16 +138,14 @@ async def test_query_reminder_scopes_to_owner_and_window(monkeypatch):
     assert sent[0][0] == "alice"
     assert "alice fresh idea" in sent[0][1]
     assert "bob idea" not in sent[0][1] and "alice stale idea" not in sent[0][1]
+    assert result["fired"][0]["sent"] is True
 
-    # Fired notes are logged into notifications (enters resurfacing's cooldown set).
-    row = get_conn().execute(
-        "SELECT * FROM notifications WHERE kind LIKE 'reminder:%'"
-    ).fetchone()
+    row = get_conn().execute("SELECT * FROM notifications WHERE kind LIKE 'reminder:%'").fetchone()
     assert row is not None
 
 
 @pytest.mark.anyio
-async def test_empty_window_sends_nothing_but_marks_fired(monkeypatch):
+async def test_empty_window_sends_nothing_but_advances_schedule(monkeypatch):
     import app.reminders as mod
 
     async def fake_phrase(notes):
@@ -108,7 +153,6 @@ async def test_empty_window_sends_nothing_but_marks_fired(monkeypatch):
 
     monkeypatch.setattr(mod, "phrase_nudge", fake_phrase)
     r = _reminder(kind="daily", window_days=7)
-
     sent = []
 
     async def fake_send(user_id, message):
@@ -118,8 +162,11 @@ async def test_empty_window_sends_nothing_but_marks_fired(monkeypatch):
     assert sent == []
     assert result["fired"][0]["sent"] is False
 
-    row = get_conn().execute("SELECT last_fired_on FROM reminders WHERE id = ?", (r["id"],)).fetchone()
+    row = get_conn().execute(
+        "SELECT last_fired_on, next_run_at FROM reminders WHERE id = ?", (r["id"],)
+    ).fetchone()
     assert row["last_fired_on"] == date.today().isoformat()
+    assert row["next_run_at"] > datetime.now(timezone.utc).isoformat()
 
 
 @pytest.mark.anyio
@@ -135,8 +182,7 @@ async def test_once_reminder_is_consumed_after_firing():
 
     row = get_conn().execute("SELECT deleted_at FROM reminders WHERE id = ?", (r["id"],)).fetchone()
     assert row["deleted_at"] is not None
-
-    await run_reminders(fake_send)  # consumed: never fires again, even on later days
+    await run_reminders(fake_send)
     assert len(sent) == 1
 
 
@@ -156,13 +202,53 @@ async def test_failed_send_does_not_block_others_and_retries_next_tick():
     assert sent == [("bob", "⏰ second")]
     assert result["fired"][0]["sent"] is True
 
-    # alice's reminder is unmarked -> fires on the next tick
     rows = get_conn().execute(
-        "SELECT user_id, last_fired_on FROM reminders WHERE deleted_at IS NULL"
+        "SELECT user_id, last_fired_on, claim_token FROM reminders WHERE deleted_at IS NULL"
     ).fetchall()
-    by_user = {r["user_id"]: r["last_fired_on"] for r in rows}
-    assert by_user["alice"] is None
-    assert by_user["bob"] is not None
+    by_user = {r["user_id"]: r for r in rows}
+    assert by_user["alice"]["last_fired_on"] is None
+    assert by_user["alice"]["claim_token"] is None
+    assert by_user["bob"]["last_fired_on"] is not None
+
+
+@pytest.mark.anyio
+async def test_atomic_claim_prevents_duplicate_concurrent_delivery():
+    _reminder(kind="daily", message="one copy")
+    sent = []
+
+    async def fake_send(user_id, message):
+        await asyncio.sleep(0)
+        sent.append((user_id, message))
+
+    now = datetime.now(timezone.utc)
+    await asyncio.gather(
+        run_reminders(fake_send, now_utc=now),
+        run_reminders(fake_send, now_utc=now),
+    )
+    assert sent == [("alice", "⏰ one copy")]
+
+
+@pytest.mark.anyio
+async def test_overdue_recurring_reminder_catches_up_once_and_advances():
+    reminder = _reminder(kind="daily", message="catch up")
+    now = datetime(2026, 8, 4, 12, 0, tzinfo=timezone.utc)
+    with cursor() as cur:
+        cur.execute(
+            "UPDATE reminders SET next_run_at = ? WHERE id = ?",
+            ("2026-08-03T09:00:00+00:00", reminder["id"]),
+        )
+
+    sent = []
+
+    async def fake_send(user_id, message):
+        sent.append((user_id, message))
+
+    await run_reminders(fake_send, now_utc=now)
+    row = get_conn().execute(
+        "SELECT next_run_at FROM reminders WHERE id = ?", (reminder["id"],)
+    ).fetchone()
+    assert len(sent) == 1
+    assert row["next_run_at"] > now.isoformat()
 
 
 def test_cancel_reminder_refuses_other_users_id():
