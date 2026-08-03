@@ -14,13 +14,16 @@ from zoneinfo import ZoneInfo
 from app.config import get_settings
 from app.db import cursor, get_conn
 from app.reporting import notes_in_window, summarize_notes
-from app.resurfacing import phrase_nudge
+from app.resurfacing import phrase_nudge  # noqa: F401 - legacy digest compatibility
 from app.spaces import get_timezone, normalize_timezone
 
 logger = logging.getLogger(__name__)
 
 KINDS = {"once", "daily", "weekly"}
-ACTION_TYPES = {"notify", "digest"}
+# New schedules are reviews.  The legacy values remain readable so old databases
+# can be migrated without making the low-level compatibility helpers unusable.
+ACTION_TYPES = {"review"}
+_LEGACY_ACTION_TYPES = {"notify", "digest"}
 WINDOW_MODES = {"rolling_days", "rolling_hours", "previous_local_day"}
 DEFAULT_LOCAL_TIME = "08:00"
 DEFAULT_TIMEZONE = "UTC"
@@ -58,6 +61,8 @@ def normalize_window(
     """Validate a query window while preserving the legacy window_days field."""
     if window_mode is None:
         if window_days is None:
+            if window_value is not None:
+                raise ValueError("window_value requires window_mode")
             return (None, None)
         if window_days < 1:
             raise ValueError("rolling_days requires window_days >= 1")
@@ -150,12 +155,15 @@ def create_schedule(
     tz_name: str | None = None,
     window_mode: str | None = None,
     window_value: int | None = None,
-    action_type: str = "notify",
+    action_type: str = "review",
 ) -> str:
-    if action_type not in ACTION_TYPES:
+    supported_actions = ACTION_TYPES | _LEGACY_ACTION_TYPES
+    if action_type not in supported_actions:
         raise ValueError(f"action_type must be one of: {', '.join(sorted(ACTION_TYPES))}")
-    if action_type == "digest" and window_mode is None and window_days is None:
-        raise ValueError("digest schedules require a query window")
+    if action_type in {"review", "digest"} and (
+        window_mode is None and window_days is None and window_value is None
+    ):
+        raise ValueError("review schedules require a query window")
     if action_type == "notify" and (
         window_mode is not None or window_days is not None or window_value is not None
     ):
@@ -204,15 +212,15 @@ def create_digest(
     window_value: int | None = None,
     action_type: str = "digest",
 ) -> str:
-    if action_type != "digest":
-        raise ValueError("create_digest requires action_type=digest")
-    if window_mode is None and window_days is None:
-        raise ValueError("digest schedules require a query window")
+    if action_type not in {"digest", "review"}:
+        raise ValueError("create_digest requires action_type=review")
+    if window_mode is None and window_days is None and window_value is None:
+        raise ValueError("review schedules require a query window")
     return create_schedule(
         user_id, space, message, kind, weekday=weekday, fire_date=fire_date,
         window_days=window_days, category=category, local_time=local_time,
         tz_name=tz_name, window_mode=window_mode, window_value=window_value,
-        action_type="digest",
+        action_type=action_type,
     )
 
 
@@ -232,7 +240,9 @@ def create_reminder(
     action_type: str | None = None,
 ) -> str:
     if action_type is None:
-        action_type = "digest" if (window_mode is not None or window_days is not None) else "notify"
+        action_type = "digest" if (
+            window_mode is not None or window_days is not None or window_value is not None
+        ) else "notify"
     return create_schedule(
         user_id, space, message, kind, weekday=weekday, fire_date=fire_date,
         window_days=window_days, category=category, local_time=local_time,
@@ -241,9 +251,56 @@ def create_reminder(
     )
 
 
+def record_schedule_run(
+    schedule_id: str,
+    status: str,
+    notes_count: int = 0,
+    result_summary: str | None = None,
+    error_message: str | None = None,
+    fired_at: datetime | str | None = None,
+) -> str:
+    """Persist one review attempt and update its denormalized latest-run fields."""
+    if status not in {"success", "no_notes", "failed"}:
+        raise ValueError("status must be one of: failed, no_notes, success")
+    if isinstance(fired_at, datetime):
+        fired_at = _iso(fired_at)
+    fired_at = fired_at or _iso()
+    run_id = str(uuid.uuid4())
+    with cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO schedule_runs
+              (id, schedule_id, fired_at, status, notes_count, result_summary, error_message)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (run_id, schedule_id, fired_at, status, notes_count, result_summary, error_message),
+        )
+        cur.execute(
+            """
+            UPDATE reminders
+            SET last_run_status = ?, last_run_at = ?, last_run_notes_count = ?, last_run_error = ?
+            WHERE id = ?
+            """,
+            (status, fired_at, notes_count, error_message, schedule_id),
+        )
+    return run_id
+
+
+def list_schedule_runs(schedule_id: str, limit: int = 10) -> list[dict]:
+    limit = max(1, min(int(limit), 100))
+    rows = get_conn().execute(
+        "SELECT * FROM schedule_runs WHERE schedule_id = ? "
+        "ORDER BY fired_at DESC, rowid DESC LIMIT ?",
+        (schedule_id, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def list_schedules(user_id: str) -> list[dict]:
     rows = get_conn().execute(
-        "SELECT * FROM reminders WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at",
+        "SELECT * FROM reminders "
+        "WHERE user_id = ? AND deleted_at IS NULL AND action_type = 'review' "
+        "ORDER BY created_at",
         (user_id,),
     ).fetchall()
     return [dict(r) for r in rows]
@@ -312,7 +369,8 @@ def _describe_window(reminder: dict) -> str:
     if mode == "rolling_hours":
         return f"the last {reminder.get('window_value')} hours"
     if mode == "rolling_days" or reminder.get("window_days") is not None:
-        return f"the last {reminder.get('window_days')} day(s)"
+        days = reminder.get("window_days") or reminder.get("window_value")
+        return f"the last {days} day(s)"
     return "the time window"
 
 
@@ -383,11 +441,59 @@ def _complete(
 
 async def _fire(send_fn, reminder: dict, token: str, now: datetime) -> dict:
     note_ids: list[str] = []
+    notes_count = 0
     action_type = reminder.get("action_type")
     if not action_type:
-        action_type = "digest" if (reminder.get("window_mode") or reminder.get("window_days")) else "notify"
+        action_type = "review" if (
+            reminder.get("window_mode") or reminder.get("window_days") or reminder.get("window_value")
+        ) else "notify"
+
+    if action_type == "review":
+        try:
+            notes = _query_notes(reminder, now) or []
+            notes_count = len(notes)
+            window_desc = _describe_window(reminder)
+            label = (reminder.get("message") or "").strip()
+            heading = f"📊 Scheduled Review ({label})" if label else "📊 Scheduled Review"
+            if not notes:
+                message = f"{heading}: No notes found in window ({window_desc})."
+                status = "no_notes"
+                result_summary = message
+            else:
+                summary = await summarize_notes(notes, window_desc)
+                message = f"{heading}:\n{summary}"
+                status = "success"
+                result_summary = summary
+                note_ids = [n["id"] for n in notes]
+
+            result = send_fn(reminder["user_id"], message)
+            if hasattr(result, "__await__"):
+                await result
+        except Exception as exc:
+            try:
+                record_schedule_run(
+                    reminder["id"], "failed", notes_count=notes_count,
+                    error_message=str(exc), fired_at=now,
+                )
+            except Exception:
+                logger.exception("Could not record failed review %s", reminder["id"])
+            raise
+
+        _complete(reminder, token, now, note_ids)
+        record_schedule_run(
+            reminder["id"], status, notes_count=notes_count,
+            result_summary=result_summary, fired_at=now,
+        )
+        result = {
+            "id": reminder["id"], "sent": True, "status": status,
+            "notes_count": notes_count, "message": message,
+        }
+        if status == "no_notes":
+            result["reason"] = "no notes in window"
+        return result
 
     if action_type == "digest":
+        # Legacy rows are kept executable until migration has run everywhere.
         notes = _query_notes(reminder, now)
         if not notes:
             _complete(reminder, token, now, note_ids=[])
