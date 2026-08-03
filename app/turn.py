@@ -38,6 +38,11 @@ logger = logging.getLogger(__name__)
 # Short-term conversation context window (in pydantic-ai messages, not user turns —
 # one tool-using turn is ~4 messages). Long-term memory lives in the DB via tools.
 HISTORY_KEEP_MESSAGES = 20
+GENERIC_ALARM_REDIRECT = (
+    "gsnote schedules are dedicated to recurring Scheduled Reviews of your notes. "
+    "For generic alarms or timed reminders, please use your device's native "
+    "Reminders or Clock app."
+)
 
 # user_id -> recent pydantic-ai message history
 _history_by_user: dict[str, list] = {}
@@ -172,23 +177,45 @@ def memory_agent() -> Agent[NoteDeps, str]:
         fire_date: str | None = None,
         local_time: str | None = None,
         timezone_name: str | None = None,
+        window_mode: str | None = None,
+        window_value: int | None = None,
+        window_days: int | None = None,
+        category: str | None = None,
     ) -> str:
-        """Schedule a recurring or one-off fixed message notification at a local time.
+        """Create a Scheduled Review of the user's notes.
+
+        A query window is required. Generic alarms and fixed text reminders are
+        intentionally not stored by gsnote; use the device's Reminders or Clock app.
 
         Args:
-            message: What to notify about, in the user's own words.
+            message: Label for the review, in the user's own words.
             kind: 'once' (needs fire_date), 'daily', or 'weekly' (needs weekday).
             weekday: 0=Monday .. 6=Sunday; required when kind='weekly'.
             fire_date: YYYY-MM-DD; required when kind='once'; today or later.
+            window_mode: previous_local_day, rolling_hours, or rolling_days.
+            window_value: Hours for rolling_hours, or days for rolling_days.
+            window_days: Number of days for a rolling_days window.
+            category: Optional note filter — one of idea, intention, meeting, task, note.
             local_time: Optional 24-hour HH:MM time, e.g. 21:00. Defaults to 08:00.
             timezone_name: Optional IANA timezone override; otherwise the user's setting.
         """
-        if not message.strip():
-            raise ModelRetry("Cannot set a schedule with an empty message. Ask what to notify about.")
         if kind not in reminders.KINDS:
             raise ModelRetry("kind must be one of: once, daily, weekly")
+        if window_mode is None and window_days is None and window_value is None:
+            return GENERIC_ALARM_REDIRECT
+        label = (message or "").strip() or "Scheduled Review"
         if kind == "weekly" and (weekday is None or not 0 <= weekday <= 6):
             raise ModelRetry("weekly schedules need weekday 0 (Monday) .. 6 (Sunday)")
+        try:
+            window_mode, window_value = reminders.normalize_window(
+                window_days, window_mode, window_value
+            )
+        except ValueError as e:
+            raise ModelRetry(str(e))
+        if window_mode == "rolling_days":
+            window_days, window_value = window_value, None
+        if category is not None and category not in VALID_CATEGORIES:
+            raise ModelRetry(f"category must be one of {sorted(VALID_CATEGORIES)}")
         tz_name = timezone_name or spaces.get_timezone(ctx.deps.user_id) or reminders.DEFAULT_TIMEZONE
         if local_time is not None and timezone_name is None and spaces.get_timezone(ctx.deps.user_id) is None:
             raise ModelRetry("Set your timezone first with /timezone Europe/Warsaw, then retry this schedule.")
@@ -206,13 +233,21 @@ def memory_agent() -> Agent[NoteDeps, str]:
             if when < today:
                 raise ModelRetry(f"{fire_date} is in the past — today is {today} in {tz_name}")
         sid = reminders.create_schedule(
-            ctx.deps.user_id, ctx.deps.space, message.strip(), kind,
+            ctx.deps.user_id, ctx.deps.space, label, kind,
             weekday=weekday, fire_date=fire_date,
-            local_time=local_time, tz_name=tz_name, action_type="notify",
+            local_time=local_time, tz_name=tz_name,
+            window_mode=window_mode, window_value=window_value,
+            window_days=window_days, category=category, action_type="review",
         )
+        window_desc = (
+            "yesterday" if window_mode == "previous_local_day" else
+            f"last {window_value} hours" if window_mode == "rolling_hours" else
+            f"last {window_days} days"
+        )
+        category_desc = f", category: {category}" if category else ""
         return (
-            f"Notification schedule set: \"{message.strip()}\" ({kind}, {local_time} {tz_name}, "
-            f"space: {ctx.deps.space}, id {sid})."
+            f"Scheduled Review set: \"{label}\" ({kind}, {local_time} {tz_name}, "
+            f"space: {ctx.deps.space}, window: {window_desc}{category_desc}, id {sid})."
         )
 
     @agent.tool
@@ -229,11 +264,11 @@ def memory_agent() -> Agent[NoteDeps, str]:
         local_time: str | None = None,
         timezone_name: str | None = None,
     ) -> str:
-        """Schedule a recurring note digest/summary at a local wall-clock time.
+        """Compatibility alias for creating a Scheduled Review of notes.
 
         Args:
             kind: 'once' (needs fire_date), 'daily', or 'weekly' (needs weekday).
-            message: Optional label/topic for the digest summary.
+            message: Optional label/topic for the review.
             weekday: 0=Monday .. 6=Sunday; required when kind='weekly'.
             fire_date: YYYY-MM-DD; required when kind='once'; today or later.
             window_mode: previous_local_day for "yesterday", rolling_hours for last N hours,
@@ -246,8 +281,8 @@ def memory_agent() -> Agent[NoteDeps, str]:
         """
         if kind not in reminders.KINDS:
             raise ModelRetry("kind must be one of: once, daily, weekly")
-        if window_mode is None and window_days is None:
-            raise ModelRetry("Digest requires a query window (window_mode or window_days).")
+        if window_mode is None and window_days is None and window_value is None:
+            return GENERIC_ALARM_REDIRECT
         try:
             window_mode, window_value = reminders.normalize_window(
                 window_days, window_mode, window_value
@@ -257,10 +292,10 @@ def memory_agent() -> Agent[NoteDeps, str]:
         if window_mode == "rolling_days":
             window_days, window_value = window_value, None
         if kind == "weekly" and (weekday is None or not 0 <= weekday <= 6):
-            raise ModelRetry("weekly digest schedules need weekday 0 (Monday) .. 6 (Sunday)")
+            raise ModelRetry("weekly review schedules need weekday 0 (Monday) .. 6 (Sunday)")
         tz_name = timezone_name or spaces.get_timezone(ctx.deps.user_id) or reminders.DEFAULT_TIMEZONE
         if local_time is not None and timezone_name is None and spaces.get_timezone(ctx.deps.user_id) is None:
-            raise ModelRetry("Set your timezone first with /timezone Europe/Warsaw, then retry this digest schedule.")
+            raise ModelRetry("Set your timezone first with /timezone Europe/Warsaw, then retry this review schedule.")
         try:
             local_time = reminders.normalize_local_time(local_time or reminders.DEFAULT_LOCAL_TIME)
             tz_name = reminders.normalize_timezone(tz_name)
@@ -270,21 +305,21 @@ def memory_agent() -> Agent[NoteDeps, str]:
             try:
                 when = date.fromisoformat(fire_date or "")
             except ValueError:
-                raise ModelRetry("once digest schedules need fire_date as YYYY-MM-DD")
+                raise ModelRetry("once review schedules need fire_date as YYYY-MM-DD")
             today = datetime.now(timezone.utc).astimezone(ZoneInfo(tz_name)).date()
             if when < today:
                 raise ModelRetry(f"{fire_date} is in the past — today is {today} in {tz_name}")
         if category is not None and category not in VALID_CATEGORIES:
             raise ModelRetry(f"category must be one of {sorted(VALID_CATEGORIES)}")
 
-        label = (message or "").strip() or "Note Digest"
+        label = (message or "").strip() or "Scheduled Review"
         sid = reminders.create_digest(
             ctx.deps.user_id, ctx.deps.space, label, kind,
             weekday=weekday, fire_date=fire_date,
             window_days=window_days, category=category,
             local_time=local_time, tz_name=tz_name,
             window_mode=window_mode, window_value=window_value,
-            action_type="digest",
+            action_type="review",
         )
         window_desc = (
             "yesterday" if window_mode == "previous_local_day" else
@@ -293,13 +328,13 @@ def memory_agent() -> Agent[NoteDeps, str]:
         )
         category_desc = f", category: {category}" if category else ""
         return (
-            f"Digest scheduled ({kind}, {local_time} {tz_name}, space: {ctx.deps.space}, "
+            f"Scheduled Review set ({kind}, {local_time} {tz_name}, space: {ctx.deps.space}, "
             f"window: {window_desc}{category_desc}, id {sid})."
         )
 
     @agent.tool
     async def list_schedules(ctx: RunContext[NoteDeps]) -> str:
-        """List the user's active notification and digest schedules with their ids."""
+        """List the user's active Scheduled Reviews and their latest run status."""
         rows = reminders.list_schedules(ctx.deps.user_id)
         if not rows:
             return "No active schedules."
@@ -322,17 +357,46 @@ def memory_agent() -> Agent[NoteDeps, str]:
             elif mode == "rolling_hours":
                 description = f"last {r['window_value']} hours"
             elif mode == "rolling_days" or r.get("window_days") is not None:
-                description = f"last {r['window_days']} days"
+                days = r.get("window_days") or r.get("window_value")
+                description = f"last {days} days"
             else:
                 description = "message only"
             if r.get("category"):
                 description += f"; category: {r['category']}"
             return description
 
+        def latest_run(r: dict) -> str:
+            status = r.get("last_run_status")
+            if not status:
+                return "; last run: never"
+            timestamp = r.get("last_run_at") or "unknown time"
+            count = r.get("last_run_notes_count") or 0
+            detail = f"; last run: {status} at {timestamp} ({count} notes)"
+            if r.get("last_run_error"):
+                detail += f"; error: {r['last_run_error']}"
+            return detail
+
         return "\n".join(
-            f"- {r['id']}: [{r.get('action_type', 'notify')}] {r['message']} "
-            f"({schedule(r)}; space: {r['space']}; window: {window(r)})"
+            f"- {r['id']}: [review] {r['message']} "
+            f"({schedule(r)}; space: {r['space']}; window: {window(r)}{latest_run(r)})"
             for r in rows
+        )
+
+    @agent.tool
+    async def get_schedule_runs(ctx: RunContext[NoteDeps], schedule_id: str, limit: int = 10) -> str:
+        """Show recent run status and note counts for one of the user's Scheduled Reviews."""
+        owner = reminders.get_conn().execute(
+            "SELECT user_id FROM reminders WHERE id = ?", (schedule_id,)
+        ).fetchone()
+        if owner is None or owner["user_id"] != ctx.deps.user_id:
+            return "No Scheduled Review with that id."
+        runs = reminders.list_schedule_runs(schedule_id, limit)
+        if not runs:
+            return "No runs recorded for that Scheduled Review."
+        return "\n".join(
+            f"- {run['status']} at {run['fired_at']} ({run['notes_count']} notes)"
+            + (f" — {run['error_message']}" if run.get("error_message") else "")
+            for run in runs
         )
 
     @agent.tool
@@ -413,7 +477,7 @@ async def handle_command(user_id: str, command: str, args: str) -> str:
             "• /space <name> — switch to (or create) a space\n"
             "• /space — show active space and your spaces\n"
             "• /timezone <IANA name> — set local time, e.g. Europe/Warsaw\n"
-            "• Schedules — fixed notifications send text; digests summarize your notes\n"
+            "• Scheduled Reviews — evaluate notes in a time window on a local schedule\n"
             "• /briefing on [HH:MM]|off — local-time message with notes due that day"
         )
     return "Unknown command. Try /space."

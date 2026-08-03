@@ -132,7 +132,7 @@ async def test_create_digest_tool_persists_local_schedule():
     assert row["timezone"] == "Europe/Warsaw"
     assert row["next_run_at"] is not None
     assert row["window_mode"] == "previous_local_day"
-    assert row["action_type"] == "digest"
+    assert row["action_type"] == "review"
 
 
 @pytest.mark.anyio
@@ -141,7 +141,7 @@ async def test_list_schedules_tool_shows_scope_and_window():
     set_timezone("u1", "Europe/Warsaw")
     reminders.create_digest(
         "u1", "platform", "daily summary", "daily",
-        local_time="21:00", window_mode="previous_local_day",
+        local_time="21:00", window_mode="previous_local_day", action_type="review",
     )
     captured: dict = {}
     with agent.override(model=FunctionModel(_capture_tool_return("list_schedules", {}, captured))):
@@ -150,7 +150,7 @@ async def test_list_schedules_tool_shows_scope_and_window():
     assert "platform" in captured["result"]
     assert "21:00 Europe/Warsaw" in captured["result"]
     assert "yesterday" in captured["result"]
-    assert "[digest]" in captured["result"]
+    assert "[review]" in captured["result"]
 
 
 @pytest.mark.anyio
@@ -198,17 +198,17 @@ async def test_create_digest_tool_persists_owner_scoped_row():
         await agent.run("send me a weekly digest of my ideas from last 7 days",
                         deps=NoteDeps(user_id="u1", space="work"))
 
-    assert "Digest scheduled" in captured["result"]
+    assert "Scheduled Review set" in captured["result"]
     row = get_conn().execute("SELECT * FROM reminders").fetchone()
     assert row is not None
     assert row["user_id"] == "u1" and row["space"] == "work"
     assert row["kind"] == "weekly" and row["weekday"] == 1
     assert row["window_days"] == 7 and row["category"] == "idea"
-    assert row["action_type"] == "digest"
+    assert row["action_type"] == "review"
 
 
 @pytest.mark.anyio
-async def test_create_schedule_tool_persists_notify_row():
+async def test_create_schedule_tool_redirects_generic_alarm():
     agent = memory_agent()
     set_timezone("u1", "Europe/Warsaw")
 
@@ -218,10 +218,6 @@ async def test_create_schedule_tool_persists_notify_row():
         await agent.run("remind me to water plants every day at 9am",
                         deps=NoteDeps(user_id="u1", space="work"))
 
-    assert "Notification schedule set" in captured["result"]
-    row = get_conn().execute("SELECT * FROM reminders").fetchone()
-    assert row is not None
-    assert row["user_id"] == "u1" and row["space"] == "work"
-    assert row["kind"] == "daily" and row["message"] == "water the plants"
-    assert row["action_type"] == "notify"
+    assert "native Reminders or Clock app" in captured["result"]
+    assert get_conn().execute("SELECT * FROM reminders").fetchone() is None
 
