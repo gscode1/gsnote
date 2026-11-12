@@ -43,9 +43,10 @@ jobs:
 
       - name: Merge multi-arch tags
         run: |
-          for tag in "${GITHUB_SHA}" latest; do
-            docker manifest create "${IMAGE}:${tag}" \
-              "${IMAGE}:amd64-${GITHUB_SHA}" \
-              "${IMAGE}:arm64-${GITHUB_SHA}"
-            docker manifest push "${IMAGE}:${tag}"
-          done
+          # imagetools accepts per-arch manifest lists (newer Docker pushes
+          # attestations with each image), which `docker manifest create` rejects.
+          docker buildx imagetools create \
+            -t "${IMAGE}:${GITHUB_SHA}" \
+            -t "${IMAGE}:latest" \
+            "${IMAGE}:amd64-${GITHUB_SHA}" \
+            "${IMAGE}:arm64-${GITHUB_SHA}"
