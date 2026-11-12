@@ -4,69 +4,28 @@ import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Response
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Response
 from pydantic import BaseModel
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
-from app.capture import capture_note
-from app.channels import Channel
+from app.capture import capture_note, delete_note, import_notes
 from app.config import get_settings
 from app.db import cursor, get_conn, run_migrations
-from app.reporting import report
+from app.mcp_server import new_session_manager
 from app.retrieval import search
-from app.scheduler import start_scheduler, stop_scheduler
-from app.turn import (
-    handle_command,
-    handle_message,
-    handle_response,
-    make_digest_sender,
-    make_plain_sender,
-)
+from app.spaces import list_spaces
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-_channel: Channel | None = None
-
-
-async def _build_channel() -> Channel | None:
-    settings = get_settings()
-    if settings.channel == "none":
-        return None
-    if settings.channel == "telegram":
-        from app.channels.telegram import TelegramChannel
-
-        return TelegramChannel()
-    if settings.channel == "slack":
-        from app.channels.slack import SlackChannel
-
-        return SlackChannel()
-    raise ValueError(f"Unknown channel: {settings.channel}")
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _channel
     run_migrations()
-
-    _channel = await _build_channel()
-    if _channel is not None:
-        channel = _channel
-
-        async def on_message(user_id: str, text: str) -> None:
-            await handle_message(channel, user_id, text)
-
-        _channel.on_message(on_message)
-        _channel.on_response(handle_response)
-        _channel.on_command(handle_command)
-        await _channel.start()
-
-    scheduler = start_scheduler(make_digest_sender(_channel), make_plain_sender(_channel))
-
-    yield
-
-    stop_scheduler()
-    if _channel is not None:
-        await _channel.stop()
+    app.state.mcp_manager = new_session_manager()
+    async with app.state.mcp_manager.run():
+        yield
 
 
 app = FastAPI(title="gsnote", lifespan=lifespan)
@@ -81,6 +40,22 @@ def require_api_token(authorization: str | None = Header(default=None)) -> None:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
+class MCPEndpoint:
+    """ASGI endpoint for the MCP server: same bearer token as the API, then the session manager."""
+
+    async def __call__(self, scope, receive, send) -> None:
+        request = Request(scope, receive)
+        try:
+            require_api_token(request.headers.get("authorization"))
+        except HTTPException as e:
+            await JSONResponse({"detail": e.detail}, status_code=e.status_code)(scope, receive, send)
+            return
+        await request.app.state.mcp_manager.handle_request(scope, receive, send)
+
+
+app.add_route("/mcp", MCPEndpoint())
+
+
 @app.get("/health")
 def health():
     get_conn()  # ensures DB connection is alive
@@ -91,11 +66,15 @@ class CaptureRequest(BaseModel):
     content: str
     source: str = "user"
     space: str = "default"
+    category: str = "note"
 
 
 @app.post("/capture", dependencies=[Depends(require_api_token)])
-async def capture_endpoint(req: CaptureRequest):
-    return await capture_note(req.content, source=req.source, space=req.space)
+def capture_endpoint(req: CaptureRequest):
+    try:
+        return capture_note(req.content, source=req.source, space=req.space, category=req.category)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 class SearchResponse(BaseModel):
@@ -103,34 +82,43 @@ class SearchResponse(BaseModel):
 
 
 @app.get("/search", response_model=SearchResponse, dependencies=[Depends(require_api_token)])
-def search_endpoint(q: str, top_k: int | None = None, space: str | None = "default"):
-    return {"notes": search(q, top_k=top_k, space=space)}
+def search_endpoint(
+    q: str | None = None,
+    space: str | None = None,
+    category: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    top_k: int | None = None,
+):
+    try:
+        notes = search(q, space=space, category=category, since=since, until=until, top_k=top_k)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"notes": notes}
 
 
-class ReportRequest(BaseModel):
-    query: str
-    category: str | None = None
-    space: str | None = "default"
+@app.get("/spaces", dependencies=[Depends(require_api_token)])
+def spaces_endpoint():
+    return list_spaces()
 
 
-@app.post("/report", dependencies=[Depends(require_api_token)])
-async def report_endpoint(req: ReportRequest):
-    return {"summary": await report(req.query, category=req.category, space=req.space)}
+@app.delete("/notes/{note_id}", dependencies=[Depends(require_api_token)])
+def delete_endpoint(note_id: str):
+    if not delete_note(note_id):
+        raise HTTPException(status_code=404, detail="Note not found")
+    return {"deleted": note_id}
 
 
 @app.get("/export", dependencies=[Depends(require_api_token)])
 def export_endpoint():
-    # Admin surface: behind API_TOKEN, deliberately exports every owner's notes.
-    # Bot paths (search/report/digest/spaces) are owner-scoped via spaces.scope_filter.
-
+    # Admin surface: behind API_TOKEN, exports every space.
     with cursor() as cur:
         rows = cur.execute(
-            "SELECT id, content, category, importance, source, space,"
-            " created_at, updated_at, last_accessed_at, access_count"
-            " FROM notes WHERE deleted_at IS NULL ORDER BY created_at"
+            "SELECT id, content, category, source, space, created_at, updated_at"
+            " FROM notes ORDER BY created_at"
         ).fetchall()
     payload = {
-        "version": 1,
+        "version": 2,
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "notes": [dict(row) for row in rows],
     }
@@ -139,3 +127,11 @@ def export_endpoint():
         media_type="application/json",
         headers={"Content-Disposition": 'attachment; filename="gsnote-export.json"'},
     )
+
+
+@app.post("/import", dependencies=[Depends(require_api_token)])
+def import_endpoint(payload: dict = Body(...)):
+    try:
+        return import_notes(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))

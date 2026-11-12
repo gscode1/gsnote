@@ -1,110 +1,118 @@
-"""Capture pipeline (PRD §5): classify -> store -> embed -> graph edges -> ack.
-
-Classification lives here: it is the capture pipeline's own first step.
-"""
+"""Capture pipeline: validate -> store -> embed. No LLM involved."""
 import json
+import re
 import uuid
-from datetime import date, datetime, timezone
-from functools import lru_cache
+from datetime import datetime, timezone
 
-from pydantic import BaseModel, Field
-from pydantic_ai import Agent
-
-from app import graph
-from app.config import get_settings
-from app.db import cursor
+from app.db import cursor, get_conn
 from app.embeddings import embed
-from app.llm import build_model
-from app.prompts import CLASSIFIER, prompt
+from app.spaces import DEFAULT_SPACE, normalize_space
 
-VALID_CATEGORIES = {"idea", "intention", "meeting", "task", "note"}
+DEFAULT_CATEGORY = "note"
 
-
-class Classification(BaseModel):
-    category: str = Field(description="One of: idea, intention, meeting, task, note")
-    importance: int = Field(ge=1, le=5, description="1 (trivial) to 5 (critical)")
-    normalized_content: str = Field(description="The note content, lightly cleaned up")
-    due_date: str | None = Field(
-        default=None,
-        description="YYYY-MM-DD if the note states an explicit or unambiguous "
-        "planned/delivery date, else null",
-    )
+_CATEGORY_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
 
 
-@lru_cache
-def classifier_agent() -> Agent:
-    settings = get_settings()
-    return Agent(
-        build_model(settings.classifier_model),
-        output_type=Classification,
-        # Callable so data/prompts/classifier.md overrides are re-read each run.
-        # NOTE: this prompt backs structured Classification output — an override must
-        # still demand category (idea|intention|meeting|task|note) + importance 1-5.
-        # Today's date is injected so relative dates ("tomorrow") resolve to due_date.
-        instructions=lambda: (
-            prompt("classifier", CLASSIFIER)
-            + f"\nToday is {datetime.now().strftime('%A, %Y-%m-%d')}."
-        ),
-    )
+def normalize_category(name: str) -> str:
+    """Lowercase, hyphenate separators, validate. Raises ValueError on junk."""
+    name = re.sub(r"[\s_]+", "-", name.strip().lower())
+    if not _CATEGORY_RE.fullmatch(name):
+        raise ValueError(f"Invalid category: {name!r} (use letters, digits, dashes; max 32 chars)")
+    return name
 
 
-async def classify_note(content: str) -> Classification:
-    result = await classifier_agent().run(content)
-    output = result.output
-    if output.category not in VALID_CATEGORIES:
-        output.category = "note"
-    return output
-
-
-async def capture_note(content: str, source: str = "user", space: str = "default") -> dict:
-    classification = await classify_note(content)
-
-    due_date = classification.due_date
-    if due_date:
-        try:
-            date.fromisoformat(due_date)
-        except ValueError:
-            due_date = None  # unparseable model output -> no date, never invent one
+def capture_note(
+    content: str,
+    source: str = "user",
+    space: str = "default",
+    category: str = DEFAULT_CATEGORY,
+) -> dict:
+    content = (content or "").strip()
+    if not content:
+        raise ValueError("Note content must not be empty")
+    space = normalize_space(space)
+    category = normalize_category(category)
 
     note_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
-    vector = embed(classification.normalized_content)
+    vector = embed(content)
 
     with cursor() as cur:
         cur.execute(
             """
-            INSERT INTO notes (id, content, category, importance, source, space, due_date, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO notes (id, content, category, source, space, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (
-                note_id,
-                classification.normalized_content,
-                classification.category,
-                classification.importance,
-                source,
-                space,
-                due_date,
-                now,
-                now,
-            ),
+            (note_id, content, category, source, space, now, now),
         )
-        cur.execute(
-            "INSERT INTO notes_fts (note_id, content) VALUES (?, ?)",
-            (note_id, classification.normalized_content),
-        )
+        cur.execute("INSERT INTO notes_fts (note_id, content) VALUES (?, ?)", (note_id, content))
         cur.execute(
             "INSERT INTO note_vectors (note_id, embedding) VALUES (?, ?)",
             (note_id, json.dumps(vector)),
         )
-        graph.build_temporal_edges(cur.connection, note_id, source, now)
-        graph.build_semantic_edges(cur.connection, note_id, vector)
 
     return {
         "id": note_id,
-        "content": classification.normalized_content,
-        "category": classification.category,
-        "importance": classification.importance,
+        "content": content,
+        "category": category,
+        "source": source,
         "space": space,
-        "due_date": due_date,
         "created_at": now,
     }
+
+
+def delete_note(note_id: str) -> bool:
+    """Hard delete from notes, FTS and vector index. Returns False if the note does not exist."""
+    with cursor() as cur:
+        cur.execute("DELETE FROM notes_fts WHERE note_id = ?", (note_id,))
+        cur.execute("DELETE FROM note_vectors WHERE note_id = ?", (note_id,))
+        deleted = cur.execute("DELETE FROM notes WHERE id = ?", (note_id,)).rowcount
+    return deleted > 0
+
+
+def import_notes(payload: dict) -> dict:
+    """Import an export payload (version 1 = old bot format, version 2). Skips existing ids."""
+    version = payload.get("version") if isinstance(payload, dict) else None
+    if version not in (1, 2):
+        raise ValueError(f"Unsupported export version: {version!r} (expected 1 or 2)")
+    notes = payload.get("notes")
+    if not isinstance(notes, list):
+        raise ValueError("Export payload must contain a 'notes' list")
+
+    imported = skipped = 0
+    for raw in notes:
+        if not isinstance(raw, dict):
+            raise ValueError("Each note must be an object")
+        content = (raw.get("content") or "").strip()
+        note_id = raw.get("id")
+        if not content or not note_id or raw.get("deleted_at"):  # v1 soft-deleted notes
+            skipped += 1
+            continue
+        if get_conn().execute("SELECT 1 FROM notes WHERE id = ?", (note_id,)).fetchone():
+            skipped += 1
+            continue
+        try:
+            space = normalize_space(raw.get("space") or "")
+        except ValueError:
+            space = DEFAULT_SPACE
+        try:
+            category = normalize_category(raw.get("category") or "")
+        except ValueError:
+            category = DEFAULT_CATEGORY
+        now = datetime.now(timezone.utc).isoformat()
+        created_at = raw.get("created_at") or now
+        updated_at = raw.get("updated_at") or created_at
+        vector = embed(content)
+        with cursor() as cur:
+            cur.execute(
+                "INSERT INTO notes (id, content, category, source, space, created_at, updated_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (note_id, content, category, raw.get("source") or "user", space, created_at, updated_at),
+            )
+            cur.execute("INSERT INTO notes_fts (note_id, content) VALUES (?, ?)", (note_id, content))
+            cur.execute(
+                "INSERT INTO note_vectors (note_id, embedding) VALUES (?, ?)",
+                (note_id, json.dumps(vector)),
+            )
+        imported += 1
+    return {"imported": imported, "skipped": skipped}

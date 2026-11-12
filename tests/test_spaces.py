@@ -1,58 +1,64 @@
 """Tests for named note spaces."""
 import pytest
+from fastapi.testclient import TestClient
 
 from app import capture, spaces
-from app.capture import Classification
-from app.retrieval import search
-from app.reporting import notes_in_window
+from app.config import get_settings
+from app.main import app
+from app.retrieval import Filters, search
 
 
-@pytest.fixture(autouse=True)
-def _mock_classifier(monkeypatch):
-    async def fake_classify(content: str) -> Classification:
-        return Classification(category="note", importance=3, normalized_content=content)
-
-    monkeypatch.setattr(capture, "classify_note", fake_classify)
-
-
-def test_active_space_default_and_toggle():
-    assert spaces.get_space("u1") == "default"
-    spaces.set_space("u1", "work")
-    assert spaces.get_space("u1") == "work"
-    spaces.set_space("u1", "personal")
-    assert spaces.get_space("u1") == "personal"
-
-
-def test_set_invalid_space_raises():
+def test_normalize_space():
+    assert spaces.normalize_space("  Side Project_X ") == "side-project-x"
     with pytest.raises(ValueError):
-        spaces.set_space("u1", "!!bad name!!")
+        spaces.normalize_space("!!bad name!!")
 
 
-def test_custom_space_normalize_and_roundtrip():
-    spaces.set_space("u1", "  Side Project_X ")
-    assert spaces.get_space("u1") == "side-project-x"
+def test_space_filter_sql():
+    assert Filters().sql() == ("", [])
+    assert not Filters()
+    assert Filters(space="work").sql() == (" AND space = ?", ["work"])
+    assert Filters(space="work").sql(alias="n") == (" AND n.space = ?", ["work"])
 
 
-@pytest.mark.anyio
-async def test_list_spaces_includes_active_and_used():
-    await capture.capture_note("work thing", source="u1", space="work")
-    spaces.set_space("u1", "hobby")
-    assert spaces.list_spaces("u1") == ["hobby", "work"]
+def test_list_spaces_counts_sorted():
+    assert spaces.list_spaces() == []
+    capture.capture_note("work thing", space="work")
+    capture.capture_note("another work thing", space="work")
+    capture.capture_note("hobby thing", space="hobby")
+    gone = capture.capture_note("deleted thing", space="trash")
+    capture.delete_note(gone["id"])
+
+    assert spaces.list_spaces() == [
+        {"space": "hobby", "notes": 1},
+        {"space": "work", "notes": 2},
+    ]
 
 
-@pytest.mark.anyio
-async def test_custom_space_isolates_notes():
-    await capture.capture_note("hobby guitar practice", source="u1", space="hobby")
-    await capture.capture_note("hobby project deadline", source="u1", space="work")
+def test_spaces_endpoint_requires_token_and_lists(monkeypatch):
+    monkeypatch.setenv("API_TOKEN", "s3cret")
+    get_settings.cache_clear()
+    capture.capture_note("a", space="work")
+    capture.capture_note("b", space="work")
+    capture.capture_note("c")
+    with TestClient(app) as client:
+        assert client.get("/spaces").status_code == 401
+        resp = client.get("/spaces", headers={"Authorization": "Bearer s3cret"})
+        assert resp.status_code == 200
+        assert resp.json() == [{"space": "default", "notes": 1}, {"space": "work", "notes": 2}]
+
+
+def test_custom_space_isolates_notes():
+    capture.capture_note("hobby guitar practice", space="hobby")
+    capture.capture_note("hobby project deadline", space="work")
 
     hobby_hits = [n["content"] for n in search("hobby", space="hobby")]
     assert hobby_hits == ["hobby guitar practice"]
 
 
-@pytest.mark.anyio
-async def test_search_is_space_scoped():
-    await capture.capture_note("quarterly budget planning deck", source="u1", space="work")
-    await capture.capture_note("plan a weekend hiking trip", source="u1", space="personal")
+def test_search_is_space_scoped():
+    capture.capture_note("quarterly budget planning deck", space="work")
+    capture.capture_note("plan a weekend hiking trip", space="personal")
 
     work_hits = [n["content"] for n in search("plan", space="work")]
     personal_hits = [n["content"] for n in search("plan", space="personal")]
@@ -63,48 +69,10 @@ async def test_search_is_space_scoped():
     assert all("budget" not in c for c in personal_hits)
 
 
-@pytest.mark.anyio
-async def test_search_across_all_spaces_when_none():
-    await capture.capture_note("quarterly budget planning deck", source="u1", space="work")
-    await capture.capture_note("plan a weekend hiking trip", source="u1", space="personal")
+def test_search_across_all_spaces_when_none():
+    capture.capture_note("quarterly budget planning deck", space="work")
+    capture.capture_note("plan a weekend hiking trip", space="personal")
 
     all_hits = [n["content"] for n in search("plan", space=None)]
     assert any("budget" in c for c in all_hits)
     assert any("hiking" in c for c in all_hits)
-
-
-@pytest.mark.anyio
-async def test_window_report_is_space_scoped():
-    await capture.capture_note("work task one", source="u1", space="work")
-    await capture.capture_note("personal task one", source="u1", space="personal")
-
-    work = [n["content"] for n in notes_in_window(7, space="work")]
-    assert work == ["work task one"]
-
-@pytest.mark.anyio
-async def test_search_is_owner_scoped():
-    # Two allowlisted users sharing one space must not see each other's notes.
-    await capture.capture_note("shared space note from alice", source="alice", space="default")
-    await capture.capture_note("shared space note from bob", source="bob", space="default")
-
-    alice_hits = [n["content"] for n in search("shared space note", space="default", owner="alice")]
-    bob_hits = [n["content"] for n in search("shared space note", space="default", owner="bob")]
-
-    assert alice_hits == ["shared space note from alice"]
-    assert bob_hits == ["shared space note from bob"]
-
-@pytest.mark.anyio
-async def test_window_report_is_owner_scoped():
-    await capture.capture_note("alice idea this week", source="alice", space="default")
-    await capture.capture_note("bob idea this week", source="bob", space="default")
-
-    alice = [n["content"] for n in notes_in_window(7, space="default", owner="alice")]
-    assert alice == ["alice idea this week"]
-
-@pytest.mark.anyio
-async def test_list_spaces_is_owner_scoped():
-    await capture.capture_note("alice hobby note", source="alice", space="hobby")
-    await capture.capture_note("bob work note", source="bob", space="work")
-
-    assert spaces.list_spaces("alice") == ["default", "hobby"]  # active space always listed
-    assert spaces.list_spaces("bob") == ["default", "work"]

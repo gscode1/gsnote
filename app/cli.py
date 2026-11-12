@@ -4,7 +4,7 @@ import json
 import os
 import sys
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 DEFAULT_URL = "http://localhost:8000"
@@ -15,7 +15,7 @@ class CliError(Exception):
 
 
 def _request(method: str, path: str, *, base_url: str, token: str | None,
-             body: dict | None = None, params: dict | None = None) -> dict:
+             body: dict | None = None, params: dict | None = None):
     url = base_url.rstrip("/") + path
     if params:
         url += "?" + urlencode({k: v for k, v in params.items() if v is not None})
@@ -74,29 +74,38 @@ def cmd_add(args) -> None:
         raise CliError("empty note: pass content as an argument or via stdin")
     payload = _request("POST", "/capture", base_url=_base_url(args),
                        token=_require_token(args),
-                       body={"content": content, "source": args.source, "space": args.space})
+                       body={"content": content, "source": args.source, "space": args.space,
+                             "category": args.category})
     _emit(args, payload, lambda p: print(f"saved {p['id']} [{p['space']}]"))
 
 
 def cmd_search(args) -> None:
     payload = _request("GET", "/search", base_url=_base_url(args),
                        token=_require_token(args),
-                       params={"q": args.query, "top_k": args.top_k, "space": args.space})
+                       params={"q": args.query, "space": args.space, "category": args.category,
+                               "since": args.since, "until": args.until, "top_k": args.top_k})
 
     def human(p):
         for note in p["notes"]:
-            print(f"{note['content']} [{note.get('space', 'default')}]")
+            print(f"{note['created_at'][:10]}  [{note['space']}/{note['category']}]  "
+                  f"{note['content']}  ({note['id']})")
         if not p["notes"]:
             print("no notes found")
 
     _emit(args, payload, human)
 
 
-def cmd_report(args) -> None:
-    payload = _request("POST", "/report", base_url=_base_url(args),
-                       token=_require_token(args),
-                       body={"query": args.query, "category": args.category, "space": args.space})
-    _emit(args, payload, lambda p: print(p["summary"]))
+def cmd_spaces(args) -> None:
+    payload = _request("GET", "/spaces", base_url=_base_url(args),
+                       token=_require_token(args))
+
+    def human(p):
+        for sp in p:
+            print(f"{sp['space']}\t{sp['notes']}")
+        if not p:
+            print("no spaces yet")
+
+    _emit(args, payload, human)
 
 
 def cmd_export(args) -> None:
@@ -109,6 +118,24 @@ def cmd_export(args) -> None:
         print(f"wrote {args.output}", file=sys.stderr)
     else:
         print(out)
+
+
+def cmd_delete(args) -> None:
+    payload = _request("DELETE", f"/notes/{quote(args.id, safe='')}", base_url=_base_url(args),
+                       token=_require_token(args))
+    _emit(args, payload, lambda p: print(f"deleted {p['deleted']}"))
+
+
+def cmd_import(args) -> None:
+    raw = sys.stdin.read() if args.file == "-" else open(args.file).read()
+    try:
+        body = json.loads(raw)
+    except ValueError as e:
+        raise CliError(f"not valid JSON: {e}") from e
+    payload = _request("POST", "/import", base_url=_base_url(args),
+                       token=_require_token(args), body=body)
+    _emit(args, payload,
+          lambda p: print(f"imported {p['imported']}, skipped {p['skipped']}"))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -126,24 +153,34 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("add", parents=[common], help="capture a note")
     p.add_argument("content", nargs="?", help="note text ('-' or omitted reads stdin)")
     p.add_argument("--space", default="default")
+    p.add_argument("--category", default="note")
     p.add_argument("--source", default="cli")
     p.set_defaults(func=cmd_add)
 
-    p = sub.add_parser("search", parents=[common], help="search notes")
-    p.add_argument("query")
-    p.add_argument("--space", default="default")
+    p = sub.add_parser("search", parents=[common],
+                       help="search notes (no query = list newest matching notes)")
+    p.add_argument("query", nargs="?")
+    p.add_argument("--space", help="only this space (default: all spaces)")
+    p.add_argument("--category")
+    p.add_argument("--since", help="YYYY-MM-DD or ISO-8601 datetime (inclusive)")
+    p.add_argument("--until", help="YYYY-MM-DD or ISO-8601 datetime (inclusive)")
     p.add_argument("--top-k", type=int, default=None)
     p.set_defaults(func=cmd_search)
 
-    p = sub.add_parser("report", parents=[common], help="summarize notes matching a query")
-    p.add_argument("query")
-    p.add_argument("--space", default="default")
-    p.add_argument("--category", default=None)
-    p.set_defaults(func=cmd_report)
+    p = sub.add_parser("spaces", parents=[common], help="list spaces with note counts")
+    p.set_defaults(func=cmd_spaces)
 
     p = sub.add_parser("export", parents=[common], help="export all notes as JSON")
     p.add_argument("-o", "--output", help="output file (default stdout)")
     p.set_defaults(func=cmd_export)
+
+    p = sub.add_parser("delete", parents=[common], help="permanently delete a note")
+    p.add_argument("id")
+    p.set_defaults(func=cmd_delete)
+
+    p = sub.add_parser("import", parents=[common], help="import notes from an export file")
+    p.add_argument("file", help="export JSON file ('-' reads stdin)")
+    p.set_defaults(func=cmd_import)
 
     return parser
 

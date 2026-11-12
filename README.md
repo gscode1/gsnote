@@ -2,198 +2,163 @@
 
 [![Tests](https://github.com/gscode1/gsnote/actions/workflows/test.yml/badge.svg)](https://github.com/gscode1/gsnote/actions/workflows/test.yml)
 
-A personal memory bot you chat with — Telegram or Slack today, other channels pluggable via the `Channel` adapter interface. Send notes, ask questions later, get a weekly nudge so nothing is forgotten.
+A self-hosted personal notes memory that any coding agent can use over MCP (there is also an HTTP API and a CLI). You tell your agent to remember something; later you or any other agent can search for it. It is for people who want their own agent memory without handing notes to a third party.
 
-Self-hosted · single-user · your own LLM key · Apache-2.0
+- **No LLM, no keys.** Embeddings run locally (fastembed, `bge-large` by default). The only secret is your own `API_TOKEN`.
+- **One SQLite file.** [sqlite-vec](https://github.com/asg017/sqlite-vec) for vectors, FTS5 for keywords, fused with Reciprocal Rank Fusion. Easy to back up and export.
+- **Time-aware search.** `since` / `until` filters (whole days in your `TIMEZONE`) let the calling agent answer "what did I note last week?".
+- **Spaces.** Notes belong to a space (`work`, `personal`, a project name) and have a free-form category.
 
-## See it in action
+Apache-2.0.
 
-<table>
-  <tr>
-    <td align="center"><img src="assets/telegram-chat-save.png" width="320" alt="Saving a note: the bot confirms what was stored and its category"></td>
-    <td align="center"><img src="assets/telegram-chat-ask.png" width="320" alt="Asking a question weeks later: the bot answers from your notes with the dates they were saved"></td>
-  </tr>
-  <tr>
-    <td align="center"><b>Save anything, zero structure needed</b></td>
-    <td align="center"><b>Ask later — it remembers, with dates</b></td>
-  </tr>
-</table>
-
-## How the memory works
-
-Not a dumb note pile — every note is indexed four ways in local SQLite, and a hybrid engine fuses them when you ask:
-
-- **Vector search** — each note is embedded (`bge-large-en`, runs locally, no API calls) and stored in a [sqlite-vec](https://github.com/asg017/sqlite-vec) index, so "that show Marco mentioned" finds "The Bear" even with zero shared words.
-- **Keyword search** — SQLite FTS5 with BM25 ranking, for the exact-string cases (names, error messages, commands).
-- **Knowledge graph** — notes link to each other automatically: temporal edges connect notes captured close in time, semantic edges connect notes with similar embeddings. One memory pulls up its neighborhood.
-- **Recency + intent-aware fusion** — a cheap intent detector classifies your question (`GENERAL` vs `WHEN`), then Reciprocal Rank Fusion combines all candidate lists with per-intent weights. Time questions lean on dates, topic questions lean on meaning. Note importance and past access stats nudge the final ranking.
-
-Every answer cites when each note was saved, so "what did we decide last month?" gets a dated, verifiable answer — all from a single SQLite file you own and can export.
-
-## What you need
-
-1. A channel: a [Telegram bot token](https://t.me/BotFather) and your Telegram user id ([@userinfobot](https://t.me/userinfobot)) — or a Slack app (see Config below)
-2. An LLM API key (OpenRouter, Anthropic, or any OpenAI-compatible provider)
-
----
-
-## Setup
+## Quick start
 
 ```bash
 cp .env.example .env
-```
-
-Fill in at least:
-
-```bash
-LLM_API_KEY=...
-TELEGRAM_BOT_TOKEN=...
-TELEGRAM_ALLOWED_USER_IDS=123456789   # your numeric id; comma-separate for more
-```
-
-Then:
-
-```bash
-docker compose pull   # prebuilt multi-arch image from GHCR
+# set API_TOKEN in .env, e.g.: openssl rand -hex 32
 docker compose up -d
+curl localhost:8000/health
 ```
 
-### Verify it works
+The first start downloads the embedding model (about 1.3 GB). Data lives in the `gsnote-data` volume.
 
-Open your bot in Telegram (or a DM in Slack, if `CHANNEL=slack`). You should see an exchange like:
+Without Docker: `uv sync && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000`.
 
-> **You:** I told the landlord I'd fix the leaky tap by Friday
->
-> **Bot:** Noted — saved that.
->
-> **You:** what did I promise the landlord?
->
-> **Bot:** You promised to fix the leaky tap by Friday.
+## Connect your agent
 
-If the bot answers your question from the note you just sent, everything is wired up. No reply? Check `docker compose logs -f` — the bot refuses to start with a clear error if a required variable is missing.
+The MCP endpoint is `http://localhost:8000/mcp` (streamable HTTP, same bearer token as the API).
 
-### Other ways to run (optional)
-
-Build from source instead of pulling:
+Claude Code:
 
 ```bash
-docker compose up --build
+claude mcp add --transport http gsnote http://localhost:8000/mcp \
+  --header "Authorization: Bearer $API_TOKEN"
 ```
 
-Without Docker:
+Add `--scope user` to make it available in every project.
 
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e .
-cp .env.example .env   # same required vars
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+Other MCP clients: add an HTTP/streamable-HTTP server with the URL `http://localhost:8000/mcp` and the header `Authorization: Bearer <your API_TOKEN>`. The exact config format depends on the client; for example:
+
+```json
+{
+  "mcpServers": {
+    "gsnote": {
+      "url": "http://localhost:8000/mcp",
+      "headers": { "Authorization": "Bearer <your API_TOKEN>" }
+    }
+  }
+}
 ```
 
-Kubernetes (Helm):
+### Tools
 
-```bash
-cp charts/gsnote/values.yaml my-secrets.yaml   # fill in image + secrets (gitignored)
-helm install gsnote charts/gsnote -n gsnote --create-namespace -f my-secrets.yaml
-```
-
-Optional in-cluster whisper STT: set `whisper.enabled=true` and point `config.STT_BASE_URL` at `http://whisper:9000/v1`.
-
----
-
-## How to use
-
-| You send | What happens |
+| Tool | What it does |
 |---|---|
-| A note or idea | Saved to your memory (classified + searchable) |
-| A question | Searches your notes and answers from them |
-| A voice note | Transcribed, then treated like text *(needs STT — see below)* |
-| `/space <name>` | Switch to (or create) a named space |
-| `/space` | Show active space and your spaces |
-| Weekly digest buttons | Engaged / Dismiss / Snooze |
+| `save_note` | Save a note (`content`, optional `space`, `category`) |
+| `search_notes` | Hybrid search; optional `query`, `space`, `category`, `since`, `until`, `limit`. No query lists newest matching notes. Returns today's date and timezone so the agent can resolve "last week" |
+| `list_spaces` | List spaces with note counts |
+| `delete_note` | Permanently delete a note by id |
 
-Spaces keep notes apart. You start in the `default` space; create your own with `/space <name>`. New notes and questions use the active space, and every reply ends with a `[space]` tag showing where it was saved or searched.
+### Example
 
----
-
-## Config
-
-Minimum (required when `CHANNEL=telegram`):
-
-| Variable | What it is |
-|---|---|
-| `LLM_API_KEY` | Your provider key |
-| `LLM_PROVIDER` | `openrouter` (default), `anthropic`, or any OpenAI-compatible name |
-| `TELEGRAM_BOT_TOKEN` | From BotFather |
-| `TELEGRAM_ALLOWED_USER_IDS` | Your Telegram id(s) — empty = bot refuses to start |
-
-For `CHANNEL=slack` instead: `SLACK_BOT_TOKEN` (xoxb-), `SLACK_APP_TOKEN` (xapp-, Socket Mode), `SLACK_ALLOWED_USER_IDS` (your Slack user id, U...). Slack app setup: Socket Mode on, bot scopes `chat:write` + `im:history` + `commands` (+ `files:read` for voice), subscribe to `message.im`, and create a `/space` slash command (no request URL needed — Socket Mode delivers it).
-
-Useful optional vars:
-
-| Variable | Default | What it does |
-|---|---|---|
-| `API_TOKEN` | empty = HTTP data API off | Bearer token for `/capture`, `/search`, `/report`, `/export` (`Authorization: Bearer <token>`) |
-| `CLASSIFIER_MODEL` / `ANSWER_MODEL` | cheap / strong | Models for tagging notes vs answering |
-| `CHANNEL` | `telegram` | `telegram` (default), `slack`, or `none` (HTTP only) |
-| `RESURFACING_CRON` | `0 9 * * MON` | Weekly digest schedule |
-| `STT_ENABLED` / `STT_BASE_URL` | off | Voice notes via an OpenAI-compatible STT endpoint |
-
-Full list: [`.env.example`](.env.example).
-
----
+> **You:** save that we decided to move the API to Postgres in work
+>
+> **Agent:** *(calls `save_note` with space `work`, category `decision`)* Saved.
+>
+> *a week later, in any agent:*
+>
+> **You:** what did I note last week?
+>
+> **Agent:** *(calls `search_notes` with `since`/`until` for last week)* On Tuesday you noted that you decided to move the API to Postgres.
 
 ## CLI
 
-`pip install -e .` also installs a `gsnote` command that talks to the HTTP API. Set `API_TOKEN` (required) and `GSNOTE_URL` (default `http://localhost:8000`):
+`gsnote` is a thin client over the HTTP API (installed with the package; `uv run gsnote ...` from a checkout). It reads `API_TOKEN` and `GSNOTE_URL` (default `http://localhost:8000`); `--url`, `--token` and `--json` work on every command.
 
 ```bash
 gsnote health
-gsnote add "I told the landlord I'd fix the tap by Friday" --space home
+gsnote add "Decided to move the API to Postgres" --space work --category decision
 echo "from a pipe" | gsnote add
-gsnote search "landlord" --top-k 5
-gsnote report "what did I promise?"
+gsnote search "postgres" --space work --since 2026-11-01 --until 2026-11-07 --top-k 5
+gsnote search --since 2026-11-01          # no query: newest matching notes
+gsnote spaces
+gsnote delete <id>
 gsnote export -o gsnote-export.json
+gsnote import gsnote-export.json
 ```
 
-Add `--json` to any command for the raw API response.
+`search` also takes `--category`. `since`/`until` accept `YYYY-MM-DD` or an ISO-8601 datetime, inclusive.
 
----
+## HTTP API
 
-## Export
+All routes except `/health` need `Authorization: Bearer $API_TOKEN`. If `API_TOKEN` is empty they return 503.
 
-Your notes are yours. Download everything as JSON (needs `API_TOKEN`):
+| Route | Purpose |
+|---|---|
+| `GET /health` | Liveness (no auth) |
+| `POST /capture` | Save a note: `{content, space?, category?, source?}` |
+| `GET /search` | `q`, `space`, `category`, `since`, `until`, `top_k` |
+| `GET /spaces` | Spaces with counts |
+| `DELETE /notes/{id}` | Delete a note |
+| `GET /export` | All notes as JSON |
+| `POST /import` | Import an export file (skips existing ids) |
+| `/mcp` | MCP endpoint |
+
+## Config
+
+Environment variables (or `.env`); full list in [`.env.example`](.env.example).
+
+| Variable | Default | What it does |
+|---|---|---|
+| `API_TOKEN` | empty | Bearer token for the API and `/mcp`. Empty disables them (fail closed) |
+| `TIMEZONE` | `UTC` | IANA name; date-only `since`/`until` mean whole days here |
+| `DB_PATH` | `./data/gsnote.db` | SQLite file (`/data/gsnote.db` in Compose) |
+| `EMBEDDING_PROVIDER` | `local` | `local` (in-process) or `api` (OpenAI-compatible `/embeddings` endpoint) |
+| `EMBEDDING_MODEL` | `BAAI/bge-large-en-v1.5` | Model name |
+| `EMBEDDING_DIM` | `1024` | Must match the model; do not change on a populated DB without re-embedding |
+| `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY` | empty | For `EMBEDDING_PROVIDER=api` (key optional) |
+| `RETRIEVAL_TOP_K` | `8` | Default number of results |
+| `RETRIEVAL_CANDIDATE_N` | `20` | Candidates per ranker before fusion |
+| `RRF_K` | `60` | RRF constant |
+| `LITESTREAM_ENABLED`, `S3_*` | off | Optional backup, see below |
+
+## Kubernetes (Helm)
 
 ```bash
-curl -H "Authorization: Bearer $API_TOKEN" http://localhost:8000/export -o gsnote-export.json
+cp charts/gsnote/values.yaml my-secrets.yaml   # set image and secrets.API_TOKEN (gitignored)
+helm install gsnote charts/gsnote -n gsnote --create-namespace -f my-secrets.yaml
 ```
 
-The file is `{"version": 1, "exported_at": ..., "notes": [...]}` — each note carries its content, category, source, space, timestamps, and access stats.
-
----
-
-## Privacy
-
-Notes live in local SQLite. When the bot reasons, content goes to **your** LLM provider. You pick the key and endpoint.
-
----
+Single replica (SQLite is single-writer) with a PVC for the DB and the model cache.
 
 ## Backup (optional)
 
-Off by default. Set `LITESTREAM_ENABLED=true` plus S3 vars in `.env`, then restart. Restore runs on container start when Litestream is on and no local DB exists.
+Off by default. Set `LITESTREAM_ENABLED=true` plus the `S3_*` variables and restart; [Litestream](https://litestream.io) replicates the DB to S3. On container start with Litestream enabled and no local DB, it restores from the replica. `scripts/test_backup_restore.sh` exercises this against a local replica.
 
----
+## Upgrading from the bot version
+
+The old Telegram/Slack bot is gone; its last version is git tag `v0-bot`. Its database cannot be opened by this version (it refuses with an explanatory error). To keep your notes:
+
+1. With the old version running, export: `curl -H "Authorization: Bearer $API_TOKEN" http://localhost:8000/export -o gsnote-export.json`
+2. Start the new version with a new `DB_PATH` (or a fresh volume).
+3. `gsnote import gsnote-export.json`
+
+Both export formats (v1 from the bot, v2) are accepted; soft-deleted notes are skipped.
+
+## Privacy
+
+Everything stays on your machine. The only outbound traffic is downloading the embedding model on first start, or calls to your own endpoint if `EMBEDDING_PROVIDER=api`. See [`SECURITY.md`](SECURITY.md).
 
 ## Develop
 
 ```bash
-pip install -e ".[dev]"
-pytest
+uv sync --extra dev
+uv run pytest
+uv run python -m eval.run_eval   # retrieval quality eval
 ```
 
-Contributing a channel or fix? See [`CONTRIBUTING.md`](CONTRIBUTING.md). Security issues: [`SECURITY.md`](SECURITY.md).
-
----
+See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## License
 
-Apache-2.0 — see [`LICENSE`](LICENSE).
+Apache-2.0, see [`LICENSE`](LICENSE).

@@ -56,6 +56,16 @@ def run_migrations() -> None:
     )
     applied = {row[0] for row in conn.execute("SELECT version FROM schema_migrations")}
 
+    known = {path.stem for path in _MIGRATIONS_DIR.glob("*.sql")}
+    legacy = sorted(applied - known)
+    if legacy:
+        raise RuntimeError(
+            f"This database was created by gsnote <= v0-bot (unknown migrations: {', '.join(legacy)}) "
+            "and cannot be opened by this version. Export your notes with the old version "
+            "(GET /export), point DB_PATH at a new file, start this version, then run "
+            "`gsnote import <file>`."
+        )
+
     for path in sorted(_MIGRATIONS_DIR.glob("*.sql")):
         version = path.stem
         if version in applied:
