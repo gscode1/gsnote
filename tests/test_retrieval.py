@@ -75,3 +75,25 @@ def test_vector_candidates_respect_space_when_other_space_dominates():
 
     ids = _vector_candidates(get_conn(), "quarterly roadmap planning meeting", n, Filters(space="work"))
     assert work["id"] in ids
+
+
+def test_fts5_query_drops_polish_stopwords():
+    from app.retrieval import _fts5_query
+
+    q = _fts5_query("Pomysł NA ogród")
+    assert '"Pomysł"' in q and '"ogród"' in q
+    assert '"NA"' not in q and '"na"' not in q
+
+
+def test_polish_stopword_does_not_yield_keyword_candidate():
+    from app.retrieval import _keyword_candidates
+
+    notes = _seed(
+        [
+            ("Zdecydowaliśmy przenieść API na Postgresa", "decision"),
+            ("Pomysł: domek dla ptaków w ogrodzie", "idea"),
+        ]
+    )
+    ids = _keyword_candidates(get_conn(), "pomysł na ogród", 10)
+    assert notes[0]["id"] not in ids
+    assert notes[1]["id"] in ids
