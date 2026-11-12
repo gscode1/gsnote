@@ -28,7 +28,8 @@ def api(monkeypatch):
     routes = {
         "GET /health": {"status": "ok"},
         "POST /capture": {"id": "n1", "content": "x", "space": "default"},
-        "GET /search": {"notes": [{"content": "fix the tap", "space": "default"}]},
+        "GET /search": {"notes": [{"id": "n1", "content": "fix the tap", "space": "default",
+                                   "category": "task", "created_at": "2026-03-02T10:00:00+00:00"}]},
         "GET /spaces": [{"space": "default", "notes": 2}, {"space": "work", "notes": 1}],
         "GET /export": {"version": 2, "notes": []},
         "DELETE /notes/abc": {"deleted": "abc"},
@@ -84,7 +85,7 @@ def test_add_missing_token(api, monkeypatch, capsys):
 
 def test_search(api, monkeypatch, capsys):
     assert run(["search", "tap", "--top-k", "3"], monkeypatch) == 0
-    assert "fix the tap [default]" in capsys.readouterr().out
+    assert "2026-03-02  [default/task]  fix the tap  (n1)" in capsys.readouterr().out
     assert "q=tap" in api[0][1] and "top_k=3" in api[0][1]
 
 

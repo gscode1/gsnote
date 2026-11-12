@@ -87,7 +87,8 @@ def cmd_search(args) -> None:
 
     def human(p):
         for note in p["notes"]:
-            print(f"{note['content']} [{note.get('space', 'default')}]")
+            print(f"{note['created_at'][:10]}  [{note['space']}/{note['category']}]  "
+                  f"{note['content']}  ({note['id']})")
         if not p["notes"]:
             print("no notes found")
 
