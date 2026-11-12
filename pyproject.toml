@@ -1,7 +1,9 @@
 [project]
 name = "gsnote"
 version = "0.1.0"
-description = "Self-hosted notes memory with hybrid search"
+description = "Self-hosted personal notes memory for coding agents: MCP server, hybrid search, local embeddings, one SQLite file"
+readme = "README.md"
+keywords = ["mcp", "notes", "memory", "sqlite", "sqlite-vec", "hybrid-search", "self-hosted"]
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
 dependencies = [

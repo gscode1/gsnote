@@ -16,6 +16,6 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      # same command as README "Develop": pip install -e ".[dev]" && pytest
+      # pip equivalent of README "Develop" (uv sync --extra dev && uv run pytest)
       - run: pip install -e ".[dev]"
       - run: pytest
