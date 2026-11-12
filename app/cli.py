@@ -82,7 +82,8 @@ def cmd_add(args) -> None:
 def cmd_search(args) -> None:
     payload = _request("GET", "/search", base_url=_base_url(args),
                        token=_require_token(args),
-                       params={"q": args.query, "top_k": args.top_k, "space": args.space})
+                       params={"q": args.query, "space": args.space, "category": args.category,
+                               "since": args.since, "until": args.until, "top_k": args.top_k})
 
     def human(p):
         for note in p["notes"]:
@@ -155,9 +156,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--source", default="cli")
     p.set_defaults(func=cmd_add)
 
-    p = sub.add_parser("search", parents=[common], help="search notes")
-    p.add_argument("query")
-    p.add_argument("--space", default="default")
+    p = sub.add_parser("search", parents=[common],
+                       help="search notes (no query = list newest matching notes)")
+    p.add_argument("query", nargs="?")
+    p.add_argument("--space", help="only this space (default: all spaces)")
+    p.add_argument("--category")
+    p.add_argument("--since", help="YYYY-MM-DD or ISO-8601 datetime (inclusive)")
+    p.add_argument("--until", help="YYYY-MM-DD or ISO-8601 datetime (inclusive)")
     p.add_argument("--top-k", type=int, default=None)
     p.set_defaults(func=cmd_search)
 

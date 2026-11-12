@@ -88,6 +88,24 @@ def test_search(api, monkeypatch, capsys):
     assert "q=tap" in api[0][1] and "top_k=3" in api[0][1]
 
 
+def test_search_filters_passed_through(api, monkeypatch, capsys):
+    argv = ["search", "tap", "--space", "work", "--category", "task",
+            "--since", "2026-03-01", "--until", "2026-03-31", "--top-k", "5"]
+    assert run(argv, monkeypatch) == 0
+    url = api[0][1]
+    for part in ("q=tap", "space=work", "category=task", "since=2026-03-01",
+                 "until=2026-03-31", "top_k=5"):
+        assert part in url
+
+
+def test_search_without_query_lists_and_omits_unset_params(api, monkeypatch, capsys):
+    assert run(["search", "--since", "2026-03-01"], monkeypatch) == 0
+    url = api[0][1]
+    assert "since=2026-03-01" in url
+    assert "q=" not in url and "space=" not in url and "category=" not in url
+    assert "fix the tap" in capsys.readouterr().out
+
+
 def test_add_category(api, monkeypatch, capsys):
     assert run(["add", "ship it", "--category", "task"], monkeypatch) == 0
     assert api[0][3]["category"] == "task"

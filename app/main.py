@@ -6,12 +6,15 @@ from datetime import datetime, timezone
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Response
 from pydantic import BaseModel
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from app.capture import capture_note, delete_note, import_notes
 from app.config import get_settings
 from app.db import cursor, get_conn, run_migrations
+from app.mcp_server import new_session_manager
 from app.retrieval import search
-from app.spaces import list_spaces, normalize_space
+from app.spaces import list_spaces
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,7 +23,9 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     run_migrations()
-    yield
+    app.state.mcp_manager = new_session_manager()
+    async with app.state.mcp_manager.run():
+        yield
 
 
 app = FastAPI(title="gsnote", lifespan=lifespan)
@@ -33,6 +38,22 @@ def require_api_token(authorization: str | None = Header(default=None)) -> None:
     expected = f"Bearer {settings.api_token}"
     if authorization is None or not secrets.compare_digest(authorization, expected):
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+class MCPEndpoint:
+    """ASGI endpoint for the MCP server: same bearer token as the API, then the session manager."""
+
+    async def __call__(self, scope, receive, send) -> None:
+        request = Request(scope, receive)
+        try:
+            require_api_token(request.headers.get("authorization"))
+        except HTTPException as e:
+            await JSONResponse({"detail": e.detail}, status_code=e.status_code)(scope, receive, send)
+            return
+        await request.app.state.mcp_manager.handle_request(scope, receive, send)
+
+
+app.add_route("/mcp", MCPEndpoint())
 
 
 @app.get("/health")
@@ -61,13 +82,19 @@ class SearchResponse(BaseModel):
 
 
 @app.get("/search", response_model=SearchResponse, dependencies=[Depends(require_api_token)])
-def search_endpoint(q: str, top_k: int | None = None, space: str | None = "default"):
-    if space is not None:
-        try:
-            space = normalize_space(space)
-        except ValueError as e:
-            raise HTTPException(status_code=422, detail=str(e))
-    return {"notes": search(q, top_k=top_k, space=space)}
+def search_endpoint(
+    q: str | None = None,
+    space: str | None = None,
+    category: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    top_k: int | None = None,
+):
+    try:
+        notes = search(q, space=space, category=category, since=since, until=until, top_k=top_k)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"notes": notes}
 
 
 @app.get("/spaces", dependencies=[Depends(require_api_token)])

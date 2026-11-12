@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from app import capture, spaces
 from app.config import get_settings
 from app.main import app
-from app.retrieval import search
+from app.retrieval import Filters, search
 
 
 def test_normalize_space():
@@ -14,10 +14,11 @@ def test_normalize_space():
         spaces.normalize_space("!!bad name!!")
 
 
-def test_scope_filter():
-    assert spaces.scope_filter(None) == ("", [])
-    assert spaces.scope_filter("work") == (" AND space = ?", ["work"])
-    assert spaces.scope_filter("work", alias="n") == (" AND n.space = ?", ["work"])
+def test_space_filter_sql():
+    assert Filters().sql() == ("", [])
+    assert not Filters()
+    assert Filters(space="work").sql() == (" AND space = ?", ["work"])
+    assert Filters(space="work").sql(alias="n") == (" AND n.space = ?", ["work"])
 
 
 def test_list_spaces_counts_sorted():

@@ -19,17 +19,6 @@ def normalize_space(name: str) -> str:
     return name
 
 
-def scope_filter(space: str | None, alias: str = "") -> tuple[str, list]:
-    """The one authoritative note read scope: space.
-
-    Every note read path applies this. space=None means unscoped (all spaces).
-    """
-    col = f"{alias}." if alias else ""
-    if space is None:
-        return "", []
-    return f" AND {col}space = ?", [space]
-
-
 def list_spaces() -> list[dict]:
     """Every space that has notes, with its note count, sorted by name."""
     rows = get_conn().execute(

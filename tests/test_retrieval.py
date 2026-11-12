@@ -1,6 +1,6 @@
 from app import capture
 from app.db import get_conn
-from app.retrieval import search
+from app.retrieval import Filters, search
 
 
 def _seed(items: list[tuple[str, str]]):
@@ -73,5 +73,5 @@ def test_vector_candidates_respect_space_when_other_space_dominates():
         space="work",
     )
 
-    ids = _vector_candidates(get_conn(), "quarterly roadmap planning meeting", n, space="work")
+    ids = _vector_candidates(get_conn(), "quarterly roadmap planning meeting", n, Filters(space="work"))
     assert work["id"] in ids

@@ -1,4 +1,7 @@
 from functools import lru_cache
+from zoneinfo import ZoneInfo
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,6 +24,10 @@ class Settings(BaseSettings):
     # ponytail: fail closed — empty token disables the data routes entirely
     api_token: str = ""
 
+    # --- time ---
+    # IANA name; date-only since/until filters mean whole days in this timezone
+    timezone: str = "UTC"
+
     # --- retrieval ---
     retrieval_candidate_n: int = 20
     retrieval_top_k: int = 8
@@ -33,6 +40,15 @@ class Settings(BaseSettings):
     s3_access_key_id: str = ""
     s3_secret_access_key: str = ""
     s3_region: str = "us-east-1"
+
+    @field_validator("timezone")
+    @classmethod
+    def _valid_timezone(cls, v: str) -> str:
+        try:
+            ZoneInfo(v)
+        except (KeyError, ValueError):
+            raise ValueError(f"unknown IANA timezone: {v!r}") from None
+        return v
 
 
 @lru_cache

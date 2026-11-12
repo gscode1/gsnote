@@ -13,6 +13,8 @@ dependencies = [
     "fastembed>=0.4.2",
     "httpx>=0.27",
     "python-dotenv>=1.0",
+    "mcp>=2.3.0",
+    "tzdata>=2026.6",
 ]
 
 [project.scripts]
