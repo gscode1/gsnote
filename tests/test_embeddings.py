@@ -38,12 +38,12 @@ def test_api_provider_posts_and_orders_by_index(monkeypatch):
     captured = _fake_post(
         monkeypatch,
         {"data": [
-            {"index": 1, "embedding": [4, 5, 6]},
-            {"index": 0, "embedding": [1, 2, 3]},
+            {"index": 1, "embedding": [0, 1, 0]},
+            {"index": 0, "embedding": [1, 0, 0]},
         ]},
     )
 
-    assert embeddings.embed_many(["a", "b"]) == [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+    assert embeddings.embed_many(["a", "b"]) == [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
     assert captured["url"] == "http://embed.test/v1/embeddings"
     assert captured["json"] == {"model": "nomic-embed-text", "input": ["a", "b"]}
     assert captured["headers"] == {}  # no key configured -> no Authorization
@@ -206,3 +206,12 @@ def test_local_provider_uses_task_specific_fastembed_entry_points(monkeypatch):
     embeddings.embed_document("d")
     embeddings.embed("raw")
     assert fake.calls == [("query_embed", ["q"]), ("passage_embed", ["d"]), ("embed", ["raw"])]
+
+
+def test_vectors_are_normalised_to_unit_length(monkeypatch):
+    """L2 KNN equals cosine ranking only for unit vectors; unit input is returned untouched."""
+    _fake_post(monkeypatch, {"data": [{"index": 0, "embedding": [30, 0, 40]}, {"index": 1, "embedding": [1, 0, 0]}]})
+
+    scaled, unit = embeddings.embed_many(["a", "b"])
+    assert scaled == pytest.approx([0.6, 0.0, 0.8])
+    assert unit == [1.0, 0.0, 0.0]

@@ -1,4 +1,5 @@
 """Embeddings: in-process fastembed (ONNX, CPU) by default, or any OpenAI-compatible endpoint."""
+import math
 import re
 from functools import lru_cache
 
@@ -88,7 +89,15 @@ def embed_many(texts: list[str], task: str | None = None) -> list[list[float]]:
             raise ValueError(
                 f"Embedding dim mismatch: model produced {len(vec)}, config expects {settings.embedding_dim}"
             )
-    return vectors
+    return [_unit(vec) for vec in vectors]
+
+
+def _unit(vec: list[float]) -> list[float]:
+    """Scale to unit length. sqlite-vec ranks by L2 distance, which only matches cosine ranking for
+    unit vectors; some models (multilingual-e5, paraphrase-multilingual-mpnet) return unnormalised
+    ones (norm ~29 and ~2.6 in fastembed). A no-op for bge/jina, whose vectors are already unit."""
+    norm = math.sqrt(sum(x * x for x in vec))
+    return vec if norm == 0.0 or abs(norm - 1.0) < 1e-6 else [x / norm for x in vec]
 
 
 def embed(text: str) -> list[float]:
