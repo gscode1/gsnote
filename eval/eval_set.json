@@ -1,17 +1,17 @@
 {
   "notes": [
-    {"id": "n1", "content": "Idea: build a note app with hybrid search combining vectors and keywords", "category": "idea", "importance": 4},
-    {"id": "n2", "content": "Buy oat milk, eggs, and bananas at the grocery store", "category": "task", "importance": 2},
-    {"id": "n3", "content": "Meeting with Sam on Tuesday about the Q3 roadmap", "category": "meeting", "importance": 4},
-    {"id": "n4", "content": "Intention: start running three times a week", "category": "intention", "importance": 3},
-    {"id": "n5", "content": "Idea: a knowledge graph for proactive resurfacing of forgotten notes", "category": "idea", "importance": 5},
-    {"id": "n6", "content": "Pick up dry cleaning before Friday", "category": "task", "importance": 1},
-    {"id": "n7", "content": "Meeting notes: discussed database migration strategy with the backend team", "category": "meeting", "importance": 4},
-    {"id": "n8", "content": "Intention: read one book per month this year", "category": "intention", "importance": 2},
-    {"id": "n9", "content": "Idea: weekly digest of open loops instead of real-time notifications", "category": "idea", "importance": 5},
-    {"id": "n10", "content": "Renew passport before the trip to Japan in spring", "category": "task", "importance": 3},
-    {"id": "n11", "content": "Brainstorm: gamify note capture with streaks to encourage daily logging", "category": "idea", "importance": 3},
-    {"id": "n12", "content": "Call the dentist to reschedule next week's appointment", "category": "task", "importance": 2}
+    {"id": "n1", "content": "Idea: build a note app with hybrid search combining vectors and keywords", "category": "idea"},
+    {"id": "n2", "content": "Buy oat milk, eggs, and bananas at the grocery store", "category": "task"},
+    {"id": "n3", "content": "Meeting with Sam on Tuesday about the Q3 roadmap", "category": "meeting"},
+    {"id": "n4", "content": "Intention: start running three times a week", "category": "intention"},
+    {"id": "n5", "content": "Idea: a knowledge graph for proactive resurfacing of forgotten notes", "category": "idea"},
+    {"id": "n6", "content": "Pick up dry cleaning before Friday", "category": "task"},
+    {"id": "n7", "content": "Meeting notes: discussed database migration strategy with the backend team", "category": "meeting"},
+    {"id": "n8", "content": "Intention: read one book per month this year", "category": "intention"},
+    {"id": "n9", "content": "Idea: weekly digest of open loops instead of real-time notifications", "category": "idea"},
+    {"id": "n10", "content": "Renew passport before the trip to Japan in spring", "category": "task"},
+    {"id": "n11", "content": "Brainstorm: gamify note capture with streaks to encourage daily logging", "category": "idea"},
+    {"id": "n12", "content": "Call the dentist to reschedule next week's appointment", "category": "task"}
   ],
   "queries": [
     {
@@ -47,7 +47,7 @@
     {
       "query": "errands I still need to run",
       "expected_ids": ["n2", "n6", "n10", "n12"],
-      "note": "semantic: 'errands' doesn't appear in any note; recall depends on vector+graph"
+      "note": "semantic: 'errands' doesn't appear in any note; recall depends on vector similarity"
     },
     {
       "query": "ideas to make capturing notes more engaging",

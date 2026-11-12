@@ -28,18 +28,6 @@ def test_capture_note_stores_everywhere():
     assert vec_row is not None
 
 
-def test_capture_builds_temporal_and_semantic_edges():
-    n1 = capture.capture_note("I want to build a personal memory store", source="alice")
-    n2 = capture.capture_note("The memory store should have hybrid search", source="alice")
-
-    conn = get_conn()
-    edges = conn.execute("SELECT * FROM edges WHERE to_id = ?", (n2["id"],)).fetchall()
-    types = {e["type"] for e in edges}
-
-    assert "temporal_backbone" in types
-    assert any(e["from_id"] == n1["id"] for e in edges)
-
-
 @pytest.mark.parametrize(
     "raw,expected",
     [

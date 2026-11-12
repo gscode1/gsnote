@@ -4,7 +4,7 @@ import json
 import os
 import sys
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 DEFAULT_URL = "http://localhost:8000"
@@ -118,6 +118,24 @@ def cmd_export(args) -> None:
         print(out)
 
 
+def cmd_delete(args) -> None:
+    payload = _request("DELETE", f"/notes/{quote(args.id, safe='')}", base_url=_base_url(args),
+                       token=_require_token(args))
+    _emit(args, payload, lambda p: print(f"deleted {p['deleted']}"))
+
+
+def cmd_import(args) -> None:
+    raw = sys.stdin.read() if args.file == "-" else open(args.file).read()
+    try:
+        body = json.loads(raw)
+    except ValueError as e:
+        raise CliError(f"not valid JSON: {e}") from e
+    payload = _request("POST", "/import", base_url=_base_url(args),
+                       token=_require_token(args), body=body)
+    _emit(args, payload,
+          lambda p: print(f"imported {p['imported']}, skipped {p['skipped']}"))
+
+
 def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--url", help=f"server URL (env GSNOTE_URL, default {DEFAULT_URL})")
@@ -149,6 +167,14 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("export", parents=[common], help="export all notes as JSON")
     p.add_argument("-o", "--output", help="output file (default stdout)")
     p.set_defaults(func=cmd_export)
+
+    p = sub.add_parser("delete", parents=[common], help="permanently delete a note")
+    p.add_argument("id")
+    p.set_defaults(func=cmd_delete)
+
+    p = sub.add_parser("import", parents=[common], help="import notes from an export file")
+    p.add_argument("file", help="export JSON file ('-' reads stdin)")
+    p.set_defaults(func=cmd_import)
 
     return parser
 

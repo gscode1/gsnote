@@ -30,7 +30,9 @@ def api(monkeypatch):
         "POST /capture": {"id": "n1", "content": "x", "space": "default"},
         "GET /search": {"notes": [{"content": "fix the tap", "space": "default"}]},
         "GET /spaces": [{"space": "default", "notes": 2}, {"space": "work", "notes": 1}],
-        "GET /export": {"version": 1, "notes": []},
+        "GET /export": {"version": 2, "notes": []},
+        "DELETE /notes/abc": {"deleted": "abc"},
+        "POST /import": {"imported": 3, "skipped": 1},
     }
 
     def fake_urlopen(req):
@@ -111,13 +113,42 @@ def test_search_json(api, monkeypatch, capsys):
 
 def test_export_stdout(api, monkeypatch, capsys):
     assert run(["export"], monkeypatch) == 0
-    assert json.loads(capsys.readouterr().out)["version"] == 1
+    assert json.loads(capsys.readouterr().out)["version"] == 2
 
 
 def test_export_file(api, monkeypatch, tmp_path):
     out = tmp_path / "export.json"
     assert run(["export", "-o", str(out)], monkeypatch) == 0
-    assert json.loads(out.read_text())["version"] == 1
+    assert json.loads(out.read_text())["version"] == 2
+
+
+def test_delete(api, monkeypatch, capsys):
+    assert run(["delete", "abc"], monkeypatch) == 0
+    assert "deleted abc" in capsys.readouterr().out
+    assert api[0][0] == "DELETE /notes/abc"
+    assert api[0][2]["Authorization"] == "Bearer tok"
+
+
+def test_import_file(api, monkeypatch, capsys, tmp_path):
+    f = tmp_path / "export.json"
+    f.write_text(json.dumps({"version": 2, "notes": [{"id": "x"}]}))
+    assert run(["import", str(f)], monkeypatch) == 0
+    assert "imported 3, skipped 1" in capsys.readouterr().out
+    assert api[0][0] == "POST /import"
+    assert api[0][3] == {"version": 2, "notes": [{"id": "x"}]}
+
+
+def test_import_stdin(api, monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin", io.StringIO('{"version": 1, "notes": []}'))
+    assert run(["import", "-"], monkeypatch) == 0
+    assert api[0][3] == {"version": 1, "notes": []}
+
+
+def test_import_invalid_json(api, monkeypatch, capsys, tmp_path):
+    f = tmp_path / "bad.json"
+    f.write_text("{nope")
+    assert run(["import", str(f)], monkeypatch) == 1
+    assert "not valid JSON" in capsys.readouterr().err
 
 
 def test_http_error(monkeypatch, capsys):

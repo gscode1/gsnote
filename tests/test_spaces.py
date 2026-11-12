@@ -20,17 +20,13 @@ def test_scope_filter():
     assert spaces.scope_filter("work", alias="n") == (" AND n.space = ?", ["work"])
 
 
-def test_list_spaces_counts_non_deleted_sorted():
+def test_list_spaces_counts_sorted():
     assert spaces.list_spaces() == []
     capture.capture_note("work thing", space="work")
     capture.capture_note("another work thing", space="work")
     capture.capture_note("hobby thing", space="hobby")
     gone = capture.capture_note("deleted thing", space="trash")
-    from app.db import get_conn
-
-    conn = get_conn()
-    conn.execute("UPDATE notes SET deleted_at = ? WHERE id = ?", ("2024-01-01", gone["id"]))
-    conn.commit()
+    capture.delete_note(gone["id"])
 
     assert spaces.list_spaces() == [
         {"space": "hobby", "notes": 1},

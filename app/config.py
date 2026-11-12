@@ -21,15 +21,6 @@ class Settings(BaseSettings):
     # ponytail: fail closed — empty token disables the data routes entirely
     api_token: str = ""
 
-    # --- graph ---
-    semantic_knn_k: int = 5
-    semantic_similarity_threshold: float = 0.75
-    temporal_proximity_hours: int = 24
-    # RRF is rank-based and ignores edge weight magnitude, so weak edges (e.g. two notes
-    # ~24h apart, near-zero temporal_proximity weight) must be filtered out here before they
-    # get promoted to a full-strength rank-1 graph candidate at retrieval time.
-    graph_min_edge_weight: float = 0.3
-
     # --- retrieval ---
     retrieval_candidate_n: int = 20
     retrieval_top_k: int = 8

@@ -31,9 +31,9 @@ def scope_filter(space: str | None, alias: str = "") -> tuple[str, list]:
 
 
 def list_spaces() -> list[dict]:
-    """Every space that has non-deleted notes, with its note count, sorted by name."""
+    """Every space that has notes, with its note count, sorted by name."""
     rows = get_conn().execute(
-        "SELECT space, COUNT(*) AS notes FROM notes WHERE deleted_at IS NULL "
+        "SELECT space, COUNT(*) AS notes FROM notes "
         "GROUP BY space ORDER BY space"
     ).fetchall()
     return [{"space": r["space"], "notes": r["notes"]} for r in rows]

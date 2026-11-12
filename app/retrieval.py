@@ -1,17 +1,11 @@
-"""Hybrid retrieval pipeline (PRD §6) — the core feature.
-
-Candidate generators (vector, keyword, recency, graph) -> Reciprocal Rank Fusion
--> importance boost -> top-K -> bump access stats.
-"""
+"""Hybrid retrieval: vector + keyword (FTS5 BM25) candidates -> plain Reciprocal Rank Fusion -> top-K."""
 import json
 import re
 import sqlite3
-from datetime import datetime, timezone
 
 from app.config import get_settings
-from app.db import cursor, get_conn
+from app.db import get_conn
 from app.embeddings import embed
-from app.intent import FUSION_WEIGHTS, detect_intent
 from app.spaces import scope_filter
 
 
@@ -42,7 +36,7 @@ def _vector_candidates(
     scoped = {
         r["id"]
         for r in conn.execute(
-            f"SELECT id FROM notes WHERE id IN ({placeholders}) AND deleted_at IS NULL{scope_sql}",
+            f"SELECT id FROM notes WHERE id IN ({placeholders}){scope_sql}",
             (*ids, *scope_params),
         ).fetchall()
     }
@@ -78,7 +72,7 @@ def _keyword_candidates(
     sql = (
         "SELECT f.note_id, bm25(notes_fts) AS score "
         "FROM notes_fts f JOIN notes n ON n.id = f.note_id "
-        "WHERE notes_fts MATCH ? AND n.deleted_at IS NULL"
+        "WHERE notes_fts MATCH ?"
     )
     params: list = [fts_query]
     scope_sql, scope_params = scope_filter(space, alias="n")
@@ -90,90 +84,13 @@ def _keyword_candidates(
     return [r["note_id"] for r in rows]
 
 
-def _recency_candidates(
-    conn: sqlite3.Connection, n: int, space: str | None = None
-) -> list[str]:
-    sql = "SELECT id FROM notes WHERE deleted_at IS NULL"
-    params: list = []
-    scope_sql, scope_params = scope_filter(space)
-    sql += scope_sql
-    params.extend(scope_params)
-    sql += " ORDER BY created_at DESC LIMIT ?"
-    params.append(n)
-    rows = conn.execute(sql, params).fetchall()
-    return [r["id"] for r in rows]
-
-
-def _graph_candidates(
-    conn: sqlite3.Connection,
-    seed_ids: list[str],
-    n: int,
-    space: str | None = None,
-) -> list[str]:
-    """1-hop expansion from seed notes along relevance-bearing edges, weighted by edge weight.
-
-    temporal_backbone is excluded here: it links every sequential same-source note regardless
-    of topic (a bookkeeping signal, PRD §7), so including it in topical retrieval
-    floods results with chronologically-adjacent but unrelated notes.
-    """
-    if not seed_ids:
-        return []
-    min_weight = get_settings().graph_min_edge_weight
-    placeholders = ",".join("?" for _ in seed_ids)
-    # Over-fetch when scoped so post-filter still yields up to n neighbors.
-    fetch_n = n if space is None else min(max(n * 20, n), 500)
-    rows = conn.execute(
-        f"""
-        SELECT to_id AS neighbor, weight FROM edges
-        WHERE from_id IN ({placeholders}) AND type IN ('semantic', 'temporal_proximity') AND weight >= ?
-        UNION ALL
-        SELECT from_id AS neighbor, weight FROM edges
-        WHERE to_id IN ({placeholders}) AND type IN ('semantic', 'temporal_proximity') AND weight >= ?
-        ORDER BY weight DESC
-        LIMIT ?
-        """,
-        (*seed_ids, min_weight, *seed_ids, min_weight, fetch_n),
-    ).fetchall()
-    seen: list[str] = []
-    for r in rows:
-        if r["neighbor"] not in seen and r["neighbor"] not in seed_ids:
-            seen.append(r["neighbor"])
-    scope_sql, scope_params = scope_filter(space)
-    if not scope_sql:
-        return seen[:n]
-    if not seen:
-        return []
-    ph = ",".join("?" for _ in seen)
-    scoped = {
-        r["id"]
-        for r in conn.execute(
-            f"SELECT id FROM notes WHERE id IN ({ph}) AND deleted_at IS NULL{scope_sql}",
-            (*seen, *scope_params),
-        ).fetchall()
-    }
-    return [i for i in seen if i in scoped][:n]
-
-
-def _rrf_fuse(ranked_lists: dict[str, list[str]], weights: dict[str, float], k: int) -> list[tuple[str, float]]:
+def _rrf_fuse(ranked_lists: list[list[str]], k: int) -> list[tuple[str, float]]:
+    """Plain unweighted Reciprocal Rank Fusion."""
     scores: dict[str, float] = {}
-    for signal, ids in ranked_lists.items():
-        w = weights.get(signal, 0.0)
+    for ids in ranked_lists:
         for rank, note_id in enumerate(ids, start=1):
-            scores[note_id] = scores.get(note_id, 0.0) + w * (1.0 / (k + rank))
+            scores[note_id] = scores.get(note_id, 0.0) + 1.0 / (k + rank)
     return sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
-
-
-def _bump_access(conn: sqlite3.Connection, note_ids: list[str]) -> None:
-    if not note_ids:
-        return
-    now = datetime.now(timezone.utc).isoformat()
-    placeholders = ",".join("?" for _ in note_ids)
-    conn.execute(
-        f"UPDATE notes SET access_count = access_count + 1, last_accessed_at = ? "
-        f"WHERE id IN ({placeholders})",
-        (now, *note_ids),
-    )
-    conn.commit()
 
 
 def search(
@@ -183,54 +100,33 @@ def search(
 ) -> list[dict]:
     """Hybrid retrieval. `space` scopes to one space (None = all spaces).
 
-    All candidate generators apply the same scope; the final fetch still filters as a
-    defensive check against cross-scope leakage.
+    Both candidate generators apply the same scope; the final fetch still filters as a
+    defensive check against cross-scope leakage. Each result carries its fused `score`.
     """
     settings = get_settings()
     top_k = top_k or settings.retrieval_top_k
     n = settings.retrieval_candidate_n
-
-    intent = detect_intent(query)
-    weights = FUSION_WEIGHTS[intent]
     conn = get_conn()
 
-    vector_ids = _vector_candidates(conn, query, n, space)
-    keyword_ids = _keyword_candidates(conn, query, n, space)
-    recency_ids = _recency_candidates(conn, n, space)
-    seeds = (vector_ids[:5] + keyword_ids[:5])
-    graph_ids = _graph_candidates(conn, seeds, n, space)
-
     fused = _rrf_fuse(
-        {"vector": vector_ids, "keyword": keyword_ids, "recency": recency_ids, "graph": graph_ids},
-        weights,
+        [_vector_candidates(conn, query, n, space), _keyword_candidates(conn, query, n, space)],
         settings.rrf_k,
     )
-
     if not fused:
         return []
 
     ids = [note_id for note_id, _ in fused]
     placeholders = ",".join("?" for _ in ids)
     scope_sql, scope_params = scope_filter(space)
-    sql = f"SELECT * FROM notes WHERE id IN ({placeholders}) AND deleted_at IS NULL{scope_sql}"
-    params: list = [*ids, *scope_params]
-    rows = conn.execute(sql, params).fetchall()
+    rows = conn.execute(
+        f"SELECT * FROM notes WHERE id IN ({placeholders}){scope_sql}", [*ids, *scope_params]
+    ).fetchall()
     by_id = {r["id"]: dict(r) for r in rows}
 
-    boosted = []
-    for note_id, rrf_score in fused:
+    results = []
+    for note_id, score in fused:
         note = by_id.get(note_id)
-        if note is None:
-            continue
-        # A gentle tiebreaker, not a relevance override: importance boosts ranking among
-        # similarly-relevant notes, but must not let a high-importance/low-relevance note
-        # outrank a genuinely on-topic one (RRF score differences are often tiny).
-        importance_multiplier = 1.0 + (note["importance"] - 3) * 0.03
-        note["_score"] = rrf_score * importance_multiplier
-        boosted.append(note)
-
-    boosted.sort(key=lambda n: n["_score"], reverse=True)
-    top = boosted[:top_k]
-
-    _bump_access(conn, [n["id"] for n in top])
-    return top
+        if note is not None:
+            note["score"] = score
+            results.append(note)
+    return results[:top_k]

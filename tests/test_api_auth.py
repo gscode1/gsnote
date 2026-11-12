@@ -22,6 +22,8 @@ def test_data_routes_disabled_when_token_unset(client, monkeypatch):
     assert client.post("/capture", json={"content": "x"}).status_code == 503
     assert client.get("/spaces").status_code == 503
     assert client.get("/export").status_code == 503
+    assert client.post("/import", json={"version": 2, "notes": []}).status_code == 503
+    assert client.delete("/notes/x").status_code == 503
 
 
 def test_missing_and_wrong_token_rejected(client, monkeypatch):

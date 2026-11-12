@@ -4,10 +4,10 @@ import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Response
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Response
 from pydantic import BaseModel
 
-from app.capture import capture_note
+from app.capture import capture_note, delete_note, import_notes
 from app.config import get_settings
 from app.db import cursor, get_conn, run_migrations
 from app.retrieval import search
@@ -75,17 +75,23 @@ def spaces_endpoint():
     return list_spaces()
 
 
+@app.delete("/notes/{note_id}", dependencies=[Depends(require_api_token)])
+def delete_endpoint(note_id: str):
+    if not delete_note(note_id):
+        raise HTTPException(status_code=404, detail="Note not found")
+    return {"deleted": note_id}
+
+
 @app.get("/export", dependencies=[Depends(require_api_token)])
 def export_endpoint():
     # Admin surface: behind API_TOKEN, exports every space.
     with cursor() as cur:
         rows = cur.execute(
-            "SELECT id, content, category, importance, source, space,"
-            " created_at, updated_at, last_accessed_at, access_count"
-            " FROM notes WHERE deleted_at IS NULL ORDER BY created_at"
+            "SELECT id, content, category, source, space, created_at, updated_at"
+            " FROM notes ORDER BY created_at"
         ).fetchall()
     payload = {
-        "version": 1,
+        "version": 2,
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "notes": [dict(row) for row in rows],
     }
@@ -94,3 +100,11 @@ def export_endpoint():
         media_type="application/json",
         headers={"Content-Disposition": 'attachment; filename="gsnote-export.json"'},
     )
+
+
+@app.post("/import", dependencies=[Depends(require_api_token)])
+def import_endpoint(payload: dict = Body(...)):
+    try:
+        return import_notes(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
