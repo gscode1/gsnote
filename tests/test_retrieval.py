@@ -1,31 +1,22 @@
-import pytest
-
 from app import capture
-from app.capture import Classification
+from app.db import get_conn
 from app.retrieval import search
 
 
-async def _seed(monkeypatch, items: list[tuple[str, str, int]]):
+def _seed(items: list[tuple[str, str, int]]):
     """items: list of (content, category, importance)"""
-
-    async def fake_classify(content: str) -> Classification:
-        for c, cat, imp in items:
-            if c == content:
-                return Classification(category=cat, importance=imp, normalized_content=content)
-        return Classification(category="note", importance=3, normalized_content=content)
-
-    monkeypatch.setattr(capture, "classify_note", fake_classify)
-
     notes = []
-    for content, _, _ in items:
-        notes.append(await capture.capture_note(content, source="alice"))
+    for content, category, importance in items:
+        note = capture.capture_note(content, source="alice", category=category)
+        conn = get_conn()
+        conn.execute("UPDATE notes SET importance = ? WHERE id = ?", (importance, note["id"]))
+        conn.commit()
+        notes.append(note)
     return notes
 
 
-@pytest.mark.anyio
-async def test_keyword_search_finds_lexical_match(monkeypatch):
-    await _seed(
-        monkeypatch,
+def test_keyword_search_finds_lexical_match():
+    _seed(
         [
             ("Buy oat milk and bananas at the grocery store", "task", 2),
             ("Brainstorm names for the new memory agent product", "idea", 4),
@@ -37,10 +28,8 @@ async def test_keyword_search_finds_lexical_match(monkeypatch):
     assert any("oat milk" in c for c in contents)
 
 
-@pytest.mark.anyio
-async def test_importance_boost_affects_ranking(monkeypatch):
-    notes = await _seed(
-        monkeypatch,
+def test_importance_boost_affects_ranking():
+    notes = _seed(
         [
             ("A note about the quarterly roadmap planning meeting", "meeting", 5),
             ("Another note about the quarterly roadmap planning meeting", "meeting", 1),
@@ -54,11 +43,8 @@ async def test_importance_boost_affects_ranking(monkeypatch):
     assert scores_by_id[notes[0]["id"]] >= scores_by_id[notes[1]["id"]]
 
 
-@pytest.mark.anyio
-async def test_search_bumps_access_count(monkeypatch):
-    notes = await _seed(monkeypatch, [("Plan a trip to the mountains next spring", "idea", 3)])
-
-    from app.db import get_conn
+def test_search_bumps_access_count():
+    notes = _seed([("Plan a trip to the mountains next spring", "idea", 3)])
 
     before = get_conn().execute(
         "SELECT access_count FROM notes WHERE id = ?", (notes[0]["id"],)
@@ -73,12 +59,10 @@ async def test_search_bumps_access_count(monkeypatch):
     assert after == before + 1
 
 
-@pytest.mark.anyio
-async def test_graph_expansion_surfaces_related_note(monkeypatch):
+def test_graph_expansion_surfaces_related_note():
     """A note with no lexical/vector overlap with the query, but linked via a temporal edge
     to a note that does match, should be surfaced by the graph candidate generator."""
-    notes = await _seed(
-        monkeypatch,
+    notes = _seed(
         [
             ("Talked to Sam about the database migration plan", "meeting", 4),
             ("Remember to buy a birthday gift", "task", 2),
@@ -91,29 +75,22 @@ async def test_graph_expansion_surfaces_related_note(monkeypatch):
     assert notes[0]["id"] in ids
 
 
-@pytest.mark.anyio
-async def test_vector_candidates_respect_space_when_other_space_dominates(monkeypatch):
+def test_vector_candidates_respect_space_when_other_space_dominates():
     """Space-scoped vector search must not starve when another space owns global top-N."""
     from app.config import get_settings
     from app.retrieval import _vector_candidates
-    from app.db import get_conn
 
     settings = get_settings()
     n = settings.retrieval_candidate_n
 
-    async def fake_classify(content: str) -> Classification:
-        return Classification(category="note", importance=3, normalized_content=content)
-
-    monkeypatch.setattr(capture, "classify_note", fake_classify)
-
     # Flood personal with near-duplicate semantic notes so they dominate global knn.
     for i in range(n + 5):
-        await capture.capture_note(
+        capture.capture_note(
             f"quarterly roadmap planning meeting notes draft {i}",
             source="alice",
             space="personal",
         )
-    work = await capture.capture_note(
+    work = capture.capture_note(
         "quarterly roadmap planning meeting for the engineering org",
         source="alice",
         space="work",

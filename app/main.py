@@ -8,65 +8,19 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from pydantic import BaseModel
 
 from app.capture import capture_note
-from app.channels import Channel
 from app.config import get_settings
 from app.db import cursor, get_conn, run_migrations
-from app.reporting import report
 from app.retrieval import search
-from app.scheduler import start_scheduler, stop_scheduler
-from app.turn import (
-    handle_command,
-    handle_message,
-    handle_response,
-    make_digest_sender,
-    make_plain_sender,
-)
+from app.spaces import list_spaces, normalize_space
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-_channel: Channel | None = None
-
-
-async def _build_channel() -> Channel | None:
-    settings = get_settings()
-    if settings.channel == "none":
-        return None
-    if settings.channel == "telegram":
-        from app.channels.telegram import TelegramChannel
-
-        return TelegramChannel()
-    if settings.channel == "slack":
-        from app.channels.slack import SlackChannel
-
-        return SlackChannel()
-    raise ValueError(f"Unknown channel: {settings.channel}")
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _channel
     run_migrations()
-
-    _channel = await _build_channel()
-    if _channel is not None:
-        channel = _channel
-
-        async def on_message(user_id: str, text: str) -> None:
-            await handle_message(channel, user_id, text)
-
-        _channel.on_message(on_message)
-        _channel.on_response(handle_response)
-        _channel.on_command(handle_command)
-        await _channel.start()
-
-    scheduler = start_scheduler(make_digest_sender(_channel), make_plain_sender(_channel))
-
     yield
-
-    stop_scheduler()
-    if _channel is not None:
-        await _channel.stop()
 
 
 app = FastAPI(title="gsnote", lifespan=lifespan)
@@ -91,11 +45,15 @@ class CaptureRequest(BaseModel):
     content: str
     source: str = "user"
     space: str = "default"
+    category: str = "note"
 
 
 @app.post("/capture", dependencies=[Depends(require_api_token)])
-async def capture_endpoint(req: CaptureRequest):
-    return await capture_note(req.content, source=req.source, space=req.space)
+def capture_endpoint(req: CaptureRequest):
+    try:
+        return capture_note(req.content, source=req.source, space=req.space, category=req.category)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 class SearchResponse(BaseModel):
@@ -104,25 +62,22 @@ class SearchResponse(BaseModel):
 
 @app.get("/search", response_model=SearchResponse, dependencies=[Depends(require_api_token)])
 def search_endpoint(q: str, top_k: int | None = None, space: str | None = "default"):
+    if space is not None:
+        try:
+            space = normalize_space(space)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
     return {"notes": search(q, top_k=top_k, space=space)}
 
 
-class ReportRequest(BaseModel):
-    query: str
-    category: str | None = None
-    space: str | None = "default"
-
-
-@app.post("/report", dependencies=[Depends(require_api_token)])
-async def report_endpoint(req: ReportRequest):
-    return {"summary": await report(req.query, category=req.category, space=req.space)}
+@app.get("/spaces", dependencies=[Depends(require_api_token)])
+def spaces_endpoint():
+    return list_spaces()
 
 
 @app.get("/export", dependencies=[Depends(require_api_token)])
 def export_endpoint():
-    # Admin surface: behind API_TOKEN, deliberately exports every owner's notes.
-    # Bot paths (search/report/digest/spaces) are owner-scoped via spaces.scope_filter.
-
+    # Admin surface: behind API_TOKEN, exports every space.
     with cursor() as cur:
         rows = cur.execute(
             "SELECT id, content, category, importance, source, space,"

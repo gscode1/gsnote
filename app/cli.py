@@ -15,7 +15,7 @@ class CliError(Exception):
 
 
 def _request(method: str, path: str, *, base_url: str, token: str | None,
-             body: dict | None = None, params: dict | None = None) -> dict:
+             body: dict | None = None, params: dict | None = None):
     url = base_url.rstrip("/") + path
     if params:
         url += "?" + urlencode({k: v for k, v in params.items() if v is not None})
@@ -74,7 +74,8 @@ def cmd_add(args) -> None:
         raise CliError("empty note: pass content as an argument or via stdin")
     payload = _request("POST", "/capture", base_url=_base_url(args),
                        token=_require_token(args),
-                       body={"content": content, "source": args.source, "space": args.space})
+                       body={"content": content, "source": args.source, "space": args.space,
+                             "category": args.category})
     _emit(args, payload, lambda p: print(f"saved {p['id']} [{p['space']}]"))
 
 
@@ -92,11 +93,17 @@ def cmd_search(args) -> None:
     _emit(args, payload, human)
 
 
-def cmd_report(args) -> None:
-    payload = _request("POST", "/report", base_url=_base_url(args),
-                       token=_require_token(args),
-                       body={"query": args.query, "category": args.category, "space": args.space})
-    _emit(args, payload, lambda p: print(p["summary"]))
+def cmd_spaces(args) -> None:
+    payload = _request("GET", "/spaces", base_url=_base_url(args),
+                       token=_require_token(args))
+
+    def human(p):
+        for sp in p:
+            print(f"{sp['space']}\t{sp['notes']}")
+        if not p:
+            print("no spaces yet")
+
+    _emit(args, payload, human)
 
 
 def cmd_export(args) -> None:
@@ -126,6 +133,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("add", parents=[common], help="capture a note")
     p.add_argument("content", nargs="?", help="note text ('-' or omitted reads stdin)")
     p.add_argument("--space", default="default")
+    p.add_argument("--category", default="note")
     p.add_argument("--source", default="cli")
     p.set_defaults(func=cmd_add)
 
@@ -135,11 +143,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--top-k", type=int, default=None)
     p.set_defaults(func=cmd_search)
 
-    p = sub.add_parser("report", parents=[common], help="summarize notes matching a query")
-    p.add_argument("query")
-    p.add_argument("--space", default="default")
-    p.add_argument("--category", default=None)
-    p.set_defaults(func=cmd_report)
+    p = sub.add_parser("spaces", parents=[common], help="list spaces with note counts")
+    p.set_defaults(func=cmd_spaces)
 
     p = sub.add_parser("export", parents=[common], help="export all notes as JSON")
     p.add_argument("-o", "--output", help="output file (default stdout)")

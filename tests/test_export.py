@@ -76,11 +76,10 @@ def test_export_matches_stored_notes(client):
     assert "n2" not in {n["id"] for n in payload["notes"]}  # soft-deleted excluded
 
 
-def test_export_includes_all_owners(client):
-    # Explicit policy: the token-protected export is an admin surface and
-    # deliberately owner-agnostic, unlike the bot's owner-scoped read paths.
-    _insert_note("n1", "alice note", source="alice")
-    _insert_note("n2", "bob note", source="bob")
+def test_export_includes_all_spaces_and_sources(client):
+    # The token-protected export is an admin surface covering every space.
+    _insert_note("n1", "cli note", source="cli", space="default")
+    _insert_note("n2", "work note", source="claude-code", space="work")
 
     resp = client.get("/export", headers=AUTH)
     ids = {n["id"] for n in json.loads(resp.content)["notes"]}

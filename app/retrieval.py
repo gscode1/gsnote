@@ -20,11 +20,10 @@ def _vector_candidates(
     query: str,
     n: int,
     space: str | None = None,
-    owner: str | None = None,
 ) -> list[str]:
     vector = embed(query)
     # ponytail: vec0 applies k before SQL filters, so oversample then scope
-    fetch_k = n if (space is None and owner is None) else min(max(n * 20, n), 500)
+    fetch_k = n if space is None else min(max(n * 20, n), 500)
     rows = conn.execute(
         """
         SELECT note_id FROM note_vectors
@@ -34,7 +33,7 @@ def _vector_candidates(
         (json.dumps(vector), fetch_k),
     ).fetchall()
     ids = [r["note_id"] for r in rows]
-    scope_sql, scope_params = scope_filter(owner, space)
+    scope_sql, scope_params = scope_filter(space)
     if not scope_sql:
         return ids[:n]
     if not ids:
@@ -70,7 +69,7 @@ def _fts5_query(query: str) -> str | None:
 
 
 def _keyword_candidates(
-    conn: sqlite3.Connection, query: str, n: int, space: str | None = None, owner: str | None = None
+    conn: sqlite3.Connection, query: str, n: int, space: str | None = None
 ) -> list[str]:
     fts_query = _fts5_query(query)
     if fts_query is None:
@@ -82,7 +81,7 @@ def _keyword_candidates(
         "WHERE notes_fts MATCH ? AND n.deleted_at IS NULL"
     )
     params: list = [fts_query]
-    scope_sql, scope_params = scope_filter(owner, space, alias="n")
+    scope_sql, scope_params = scope_filter(space, alias="n")
     sql += scope_sql
     params.extend(scope_params)
     sql += " ORDER BY score LIMIT ?"
@@ -92,11 +91,11 @@ def _keyword_candidates(
 
 
 def _recency_candidates(
-    conn: sqlite3.Connection, n: int, space: str | None = None, owner: str | None = None
+    conn: sqlite3.Connection, n: int, space: str | None = None
 ) -> list[str]:
     sql = "SELECT id FROM notes WHERE deleted_at IS NULL"
     params: list = []
-    scope_sql, scope_params = scope_filter(owner, space)
+    scope_sql, scope_params = scope_filter(space)
     sql += scope_sql
     params.extend(scope_params)
     sql += " ORDER BY created_at DESC LIMIT ?"
@@ -110,12 +109,11 @@ def _graph_candidates(
     seed_ids: list[str],
     n: int,
     space: str | None = None,
-    owner: str | None = None,
 ) -> list[str]:
     """1-hop expansion from seed notes along relevance-bearing edges, weighted by edge weight.
 
     temporal_backbone is excluded here: it links every sequential same-source note regardless
-    of topic (a bookkeeping/resurfacing signal, PRD §7), so including it in topical retrieval
+    of topic (a bookkeeping signal, PRD §7), so including it in topical retrieval
     floods results with chronologically-adjacent but unrelated notes.
     """
     if not seed_ids:
@@ -123,7 +121,7 @@ def _graph_candidates(
     min_weight = get_settings().graph_min_edge_weight
     placeholders = ",".join("?" for _ in seed_ids)
     # Over-fetch when scoped so post-filter still yields up to n neighbors.
-    fetch_n = n if (space is None and owner is None) else min(max(n * 20, n), 500)
+    fetch_n = n if space is None else min(max(n * 20, n), 500)
     rows = conn.execute(
         f"""
         SELECT to_id AS neighbor, weight FROM edges
@@ -140,7 +138,7 @@ def _graph_candidates(
     for r in rows:
         if r["neighbor"] not in seen and r["neighbor"] not in seed_ids:
             seen.append(r["neighbor"])
-    scope_sql, scope_params = scope_filter(owner, space)
+    scope_sql, scope_params = scope_filter(space)
     if not scope_sql:
         return seen[:n]
     if not seen:
@@ -182,10 +180,8 @@ def search(
     query: str,
     top_k: int | None = None,
     space: str | None = "default",
-    owner: str | None = None,
 ) -> list[dict]:
-    """Hybrid retrieval. `space` scopes to one space (None = all spaces); `owner` scopes
-    to one user's notes (None = admin, all owners).
+    """Hybrid retrieval. `space` scopes to one space (None = all spaces).
 
     All candidate generators apply the same scope; the final fetch still filters as a
     defensive check against cross-scope leakage.
@@ -198,11 +194,11 @@ def search(
     weights = FUSION_WEIGHTS[intent]
     conn = get_conn()
 
-    vector_ids = _vector_candidates(conn, query, n, space, owner)
-    keyword_ids = _keyword_candidates(conn, query, n, space, owner)
-    recency_ids = _recency_candidates(conn, n, space, owner)
+    vector_ids = _vector_candidates(conn, query, n, space)
+    keyword_ids = _keyword_candidates(conn, query, n, space)
+    recency_ids = _recency_candidates(conn, n, space)
     seeds = (vector_ids[:5] + keyword_ids[:5])
-    graph_ids = _graph_candidates(conn, seeds, n, space, owner)
+    graph_ids = _graph_candidates(conn, seeds, n, space)
 
     fused = _rrf_fuse(
         {"vector": vector_ids, "keyword": keyword_ids, "recency": recency_ids, "graph": graph_ids},
@@ -215,7 +211,7 @@ def search(
 
     ids = [note_id for note_id, _ in fused]
     placeholders = ",".join("?" for _ in ids)
-    scope_sql, scope_params = scope_filter(owner, space)
+    scope_sql, scope_params = scope_filter(space)
     sql = f"SELECT * FROM notes WHERE id IN ({placeholders}) AND deleted_at IS NULL{scope_sql}"
     params: list = [*ids, *scope_params]
     rows = conn.execute(sql, params).fetchall()

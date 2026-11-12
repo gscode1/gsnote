@@ -29,7 +29,7 @@ def api(monkeypatch):
         "GET /health": {"status": "ok"},
         "POST /capture": {"id": "n1", "content": "x", "space": "default"},
         "GET /search": {"notes": [{"content": "fix the tap", "space": "default"}]},
-        "POST /report": {"summary": "you promised things"},
+        "GET /spaces": [{"space": "default", "notes": 2}, {"space": "work", "notes": 1}],
         "GET /export": {"version": 1, "notes": []},
     }
 
@@ -61,14 +61,16 @@ def test_add(api, monkeypatch, capsys):
     assert "saved n1 [default]" in capsys.readouterr().out
     key, url, headers, body = api[0]
     assert key == "POST /capture"
-    assert body == {"content": "fix the tap", "source": "cli", "space": "default"}
+    assert body == {"content": "fix the tap", "source": "cli", "space": "default",
+                    "category": "note"}
     assert headers["Authorization"] == "Bearer tok"
 
 
 def test_add_stdin_and_space(api, monkeypatch, capsys):
     monkeypatch.setattr("sys.stdin", io.StringIO("from stdin\n"))
     assert run(["add", "--space", "work"], monkeypatch) == 0
-    assert api[0][3] == {"content": "from stdin", "source": "cli", "space": "work"}
+    assert api[0][3] == {"content": "from stdin", "source": "cli", "space": "work",
+                          "category": "note"}
 
 
 def test_add_missing_token(api, monkeypatch, capsys):
@@ -84,10 +86,21 @@ def test_search(api, monkeypatch, capsys):
     assert "q=tap" in api[0][1] and "top_k=3" in api[0][1]
 
 
-def test_report(api, monkeypatch, capsys):
-    assert run(["report", "promises", "--category", "intention"], monkeypatch) == 0
-    assert "you promised things" in capsys.readouterr().out
-    assert api[0][3]["category"] == "intention"
+def test_add_category(api, monkeypatch, capsys):
+    assert run(["add", "ship it", "--category", "task"], monkeypatch) == 0
+    assert api[0][3]["category"] == "task"
+
+
+def test_spaces(api, monkeypatch, capsys):
+    assert run(["spaces"], monkeypatch) == 0
+    out = capsys.readouterr().out
+    assert "default\t2" in out and "work\t1" in out
+    assert api[0][0] == "GET /spaces"
+
+
+def test_spaces_json(api, monkeypatch, capsys):
+    assert run(["spaces", "--json"], monkeypatch) == 0
+    assert json.loads(capsys.readouterr().out)[0] == {"space": "default", "notes": 2}
 
 
 def test_search_json(api, monkeypatch, capsys):
