@@ -127,7 +127,6 @@ def test_mcp_protocol_list_save_search(server_url):
                 await session.initialize()
                 tools = {t.name: t for t in (await session.list_tools()).tools}
                 assert set(tools) == {"save_note", "search_notes", "list_spaces", "delete_note"}
-                assert "last week" in tools["search_notes"].description
 
                 saved = await session.call_tool(
                     "save_note",
@@ -156,3 +155,34 @@ def test_mcp_protocol_list_save_search(server_url):
     note_id = asyncio.run(run())
     assert get_conn().execute("SELECT source FROM notes WHERE id = ?", (note_id,)).fetchone()["source"] == "mcp"
     assert len(capture.get_conn().execute("SELECT 1 FROM notes").fetchall()) == 1
+
+
+def test_mcp_protocol_guidance_titles_annotations(server_url):
+    async def run():
+        http = create_mcp_http_client(headers={"Authorization": "Bearer s3cret"})
+        async with http, streamable_http_client(server_url, http_client=http) as (read, write):
+            async with ClientSession(read, write) as session:
+                init = await session.initialize()
+                tools = {t.name: t for t in (await session.list_tools()).tools}
+                return init.instructions, tools
+
+    instructions, tools = asyncio.run(run())
+    assert "Never save" in instructions and "search_notes" in instructions
+
+    expected = {
+        "save_note": ("Save note", dict(readOnlyHint=False, destructiveHint=False, idempotentHint=False)),
+        "search_notes": ("Search notes", dict(readOnlyHint=True)),
+        "list_spaces": ("List spaces", dict(readOnlyHint=True)),
+        "delete_note": ("Delete note", dict(readOnlyHint=False, destructiveHint=True, idempotentHint=True)),
+    }
+    for name, (title, hints) in expected.items():
+        t = tools[name]
+        assert t.title == title
+        assert t.annotations.model_dump(by_alias=True, exclude_none=True) == {**hints, "openWorldHint": False}
+
+    props = {n: tools[n].input_schema["properties"] for n in ("save_note", "search_notes", "delete_note")}
+    for n, params in props.items():
+        for pname, schema in params.items():
+            assert schema.get("description"), f"{n}.{pname} lacks a description"
+    assert props["search_notes"]["limit"]["maximum"] == 50 and props["search_notes"]["limit"]["minimum"] == 1
+    assert tools["list_spaces"].input_schema.get("properties", {}) == {}

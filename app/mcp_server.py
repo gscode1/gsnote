@@ -7,19 +7,26 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from app import capture, spaces
 from app.config import get_settings
 from app.retrieval import search
 
-mcp = MCPServer(
-    "gsnote",
-    instructions=(
-        "Personal notes memory. Save things the user wants to remember with save_note; recall them "
-        "with search_notes (semantic + keyword, optional space/category/date filters)."
-    ),
-)
+INSTRUCTIONS = """\
+Personal notes memory shared across the user's agents.
+
+Saving (save_note):
+- Only when the user asks to remember something or confirms a decision or fact worth keeping.
+- Never save chit-chat, code, logs, secrets, or what the repo or git history already holds.
+- One self-contained fact per note: names and absolute dates, not "this" or "today". Keep the user's language.
+- Search first; skip duplicates.
+- Space: the one the user names, else the project's default (e.g. from CLAUDE.md or AGENTS.md), else ask.
+
+Recall (search_notes): turn relative dates into since/until using the returned today and timezone."""
+
+mcp = MCPServer("gsnote", instructions=INSTRUCTIONS)
 
 
 def _present(note: dict) -> dict[str, Any]:
@@ -39,21 +46,22 @@ def _present(note: dict) -> dict[str, Any]:
     }
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Save note",
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False),
+)
 def save_note(
-    content: str,
-    space: str = "default",
-    category: str = "note",
+    content: Annotated[
+        str, Field(description="Self-contained statement with names and absolute dates, in the user's language.")
+    ],
+    space: Annotated[
+        str, Field(description="Collection such as work, personal or a project name; created on first use.")
+    ] = "default",
+    category: Annotated[
+        str, Field(description="Free-form label, e.g. note, idea, task, decision, meeting.")
+    ] = "note",
 ) -> dict[str, Any]:
-    """Save a note to the user's personal notes memory.
-
-    Use it when the user asks to remember, note down or save something. Write the content as a
-    self-contained statement (it is recalled later without the conversation around it).
-
-    space: a named collection of notes, such as "work", "personal" or a project name. It is created
-    on first use. Use "default" when the user names none.
-    category: free-form label. Suggested: note, idea, task, decision, meeting.
-    """
+    """Save one note. Only when the user asks to remember something or confirms a decision worth keeping."""
     try:
         note = capture.capture_note(content, source="mcp", space=space, category=category)
     except ValueError as e:  # ToolError text reaches the calling LLM; other exceptions are masked
@@ -61,31 +69,25 @@ def save_note(
     return _present(note)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Search notes",
+    annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
+)
 def search_notes(
-    query: str | None = None,
-    space: str | None = None,
-    category: str | None = None,
-    since: str | None = None,
-    until: str | None = None,
-    limit: Annotated[int, Field(ge=1, le=50)] = 10,
+    query: Annotated[str | None, Field(description="What to find, in natural language. Omit to list.")] = None,
+    space: Annotated[str | None, Field(description="Only this space. Omit to search all.")] = None,
+    category: Annotated[str | None, Field(description="Only this category.")] = None,
+    since: Annotated[
+        str | None,
+        Field(description="Inclusive start: YYYY-MM-DD or ISO-8601 datetime, in the server timezone."),
+    ] = None,
+    until: Annotated[
+        str | None,
+        Field(description="Inclusive end: YYYY-MM-DD or ISO-8601 datetime, in the server timezone."),
+    ] = None,
+    limit: Annotated[int, Field(ge=1, le=50, description="Maximum notes to return.")] = 10,
 ) -> dict[str, Any]:
-    """Search the user's saved notes by meaning and keywords, optionally filtered; newest first when
-    there is no query.
-
-    query: what to look for, in natural language. Omit it to just list notes matching the filters,
-    newest first (e.g. "what did I note last week").
-    space: only this space (e.g. "work", "personal"). Omit to search ALL spaces; use list_spaces to
-    see which exist.
-    category: only this category (e.g. note, idea, task, decision, meeting).
-    since / until: inclusive date range on when the note was saved. Format YYYY-MM-DD (a whole day) or
-    a full ISO-8601 datetime. This server does not understand relative dates: convert phrases like
-    "last week" or "in March" into explicit dates yourself, using the `today` and `timezone` fields
-    of this tool's result (call once without a range if you need them). Dates are in that timezone.
-    limit: maximum number of notes to return.
-
-    Returns today's date and timezone, plus notes (id, date, created_at, space, category, content).
-    """
+    """Search notes by meaning and keywords. Without a query, list matching notes newest first. Returns today's date and timezone."""
     try:
         notes = search(query, space=space, category=category, since=since, until=until, top_k=limit)
     except ValueError as e:
@@ -99,17 +101,23 @@ def search_notes(
     }
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List spaces",
+    annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
+)
 def list_spaces() -> list[dict]:
-    """List the user's spaces (named collections of notes such as "work" or "personal") with their
-    note counts. Use it to pick a space for save_note or search_notes."""
+    """List spaces with note counts."""
     return spaces.list_spaces()
 
 
-@mcp.tool()
-def delete_note(note_id: str) -> dict[str, Any]:
-    """Permanently delete one note by id (ids come from save_note and search_notes results).
-    Only on the user's explicit request; it cannot be undone."""
+@mcp.tool(
+    title="Delete note",
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=True, openWorldHint=False),
+)
+def delete_note(
+    note_id: Annotated[str, Field(description="Note id from save_note or search_notes.")],
+) -> dict[str, Any]:
+    """Permanently delete a note by id. Only when the user asks."""
     return {"id": note_id, "deleted": capture.delete_note(note_id)}
 
 
