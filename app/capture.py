@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 
 from app.db import cursor, get_conn
-from app.embeddings import embed
+from app.embeddings import embed_document
 from app.spaces import DEFAULT_SPACE, normalize_space
 
 DEFAULT_CATEGORY = "note"
@@ -35,7 +35,7 @@ def capture_note(
 
     note_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
-    vector = embed(content)
+    vector = embed_document(content)
 
     with cursor() as cur:
         cur.execute(
@@ -102,7 +102,7 @@ def import_notes(payload: dict) -> dict:
         now = datetime.now(timezone.utc).isoformat()
         created_at = raw.get("created_at") or now
         updated_at = raw.get("updated_at") or created_at
-        vector = embed(content)
+        vector = embed_document(content)
         with cursor() as cur:
             cur.execute(
                 "INSERT INTO notes (id, content, category, source, space, created_at, updated_at)"

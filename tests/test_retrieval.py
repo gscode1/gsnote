@@ -108,7 +108,7 @@ def test_stored_notes_are_embedded_without_prefix_and_queries_with_it(monkeypatc
 
     seen: list[str] = []
 
-    def fake_embed_many(texts):
+    def fake_embed_many(texts, task=None):
         seen.extend(texts)
         return [[1.0] + [0.0] * 383 for _ in texts]
 
@@ -117,6 +117,26 @@ def test_stored_notes_are_embedded_without_prefix_and_queries_with_it(monkeypatc
     search("electricity bill")
 
     assert seen == ["Pay the electricity bill", embeddings.BGE_QUERY_PREFIX + "electricity bill"]
+
+
+def test_e5_model_prefixes_stored_notes_and_imports_with_passage_and_queries_with_query(monkeypatch):
+    from app import embeddings
+    from app.config import get_settings
+
+    monkeypatch.setenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-large")
+    get_settings.cache_clear()
+    seen: list[str] = []
+
+    def fake_embed_many(texts, task=None):
+        seen.extend(texts)
+        return [[1.0] + [0.0] * 383 for _ in texts]
+
+    monkeypatch.setattr(embeddings, "embed_many", fake_embed_many)
+    capture.capture_note("Kup mleko", source="alice")
+    capture.import_notes({"version": 2, "notes": [{"id": "n1", "content": "Zadzwon do mamy"}]})
+    search("mleko")
+
+    assert seen == ["passage: Kup mleko", "passage: Zadzwon do mamy", "query: mleko"]
 
 
 # --- relevance gate -------------------------------------------------------------------------

@@ -27,7 +27,7 @@ os.environ.setdefault("DB_PATH", "./data/eval.db")
 from app import db  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.db import cursor, get_conn  # noqa: E402
-from app.embeddings import embed  # noqa: E402
+from app.embeddings import embed_document  # noqa: E402
 from app.retrieval import _keyword_candidates, _vector_candidates, search  # noqa: E402
 
 EVAL_SET_PATH = Path(__file__).resolve().parent / "eval_set.json"
@@ -40,7 +40,7 @@ def seed(eval_set: dict) -> None:
 
     for i, note in enumerate(eval_set["notes"]):
         created_at = (now - timedelta(days=len(eval_set["notes"]) - i)).isoformat()
-        vector = embed(note["content"])
+        vector = embed_document(note["content"])
         with cursor() as cur:
             cur.execute(
                 "INSERT INTO notes (id, content, category, source, created_at, updated_at) "

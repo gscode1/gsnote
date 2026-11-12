@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # Prefix prepended to QUERIES only (never to stored notes). None = auto: the bge-v1.5 English
     # instruction for BAAI/bge-*-en-v1.5, nothing for other models. "" = explicitly no prefix.
     embedding_query_prefix: str | None = None
+    # Same for stored NOTES only (never queries): None = auto ("passage: " for intfloat/*e5*, nothing
+    # otherwise), "" = explicitly no prefix. Changing it on a populated DB needs re-embedding.
+    embedding_document_prefix: str | None = None
 
     # --- HTTP API auth ---
     # ponytail: fail closed — empty token disables the data routes entirely

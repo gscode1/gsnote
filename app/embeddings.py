@@ -11,6 +11,11 @@ from app.config import get_settings
 BGE_QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 _BGE_V15_EN = re.compile(r"BAAI/bge-[a-z0-9]+-en-v1\.5", re.IGNORECASE)
 
+# The e5 family (e5-*, multilingual-e5-*) is trained with "query: " / "passage: " markers on both sides.
+E5_QUERY_PREFIX = "query: "
+E5_DOCUMENT_PREFIX = "passage: "
+_E5 = re.compile(r"intfloat/[a-z0-9-]*e5[a-z0-9-]*", re.IGNORECASE)
+
 
 # Default absolute cosine floor for bge v1.5 English models (see app.retrieval._min_similarity).
 BGE_MIN_SIMILARITY = 0.45
@@ -20,12 +25,26 @@ def is_bge_v15_en(model: str) -> bool:
     return _BGE_V15_EN.fullmatch(model.strip()) is not None
 
 
+def is_e5(model: str) -> bool:
+    return _E5.fullmatch(model.strip()) is not None
+
+
 def query_prefix() -> str:
     """The prefix for query embeddings: the explicit setting, else auto-detected from the model."""
     settings = get_settings()
     if settings.embedding_query_prefix is not None:
         return settings.embedding_query_prefix
-    return BGE_QUERY_PREFIX if is_bge_v15_en(settings.embedding_model) else ""
+    if is_bge_v15_en(settings.embedding_model):
+        return BGE_QUERY_PREFIX
+    return E5_QUERY_PREFIX if is_e5(settings.embedding_model) else ""
+
+
+def document_prefix() -> str:
+    """The prefix for stored-note embeddings: the explicit setting, else auto-detected from the model."""
+    settings = get_settings()
+    if settings.embedding_document_prefix is not None:
+        return settings.embedding_document_prefix
+    return E5_DOCUMENT_PREFIX if is_e5(settings.embedding_model) else ""
 
 
 @lru_cache
@@ -53,12 +72,17 @@ def _embed_api(texts: list[str]) -> list[list[float]]:
     return [[float(x) for x in d["embedding"]] for d in data]
 
 
-def embed_many(texts: list[str]) -> list[list[float]]:
+def embed_many(texts: list[str], task: str | None = None) -> list[list[float]]:
+    """Embed texts as given. `task` ("query" | "document" | None) only selects fastembed's
+    task-specific entry point (jina-embeddings-v3 has separate query and passage adapters, and its
+    plain embed() silently means "passage"); text prefixes are the callers' business."""
     settings = get_settings()
     if settings.embedding_provider == "api":
         vectors = _embed_api(texts)
     else:
-        vectors = [[float(x) for x in v] for v in _model().embed(texts)]
+        model = _model()
+        run = {"query": model.query_embed, "document": model.passage_embed}.get(task, model.embed)
+        vectors = [[float(x) for x in v] for v in run(texts)]
     for vec in vectors:
         if len(vec) != settings.embedding_dim:
             raise ValueError(
@@ -72,5 +96,10 @@ def embed(text: str) -> list[float]:
 
 
 def embed_query(text: str) -> list[float]:
-    """Embed a search query (with the model's query prefix, if any). Stored notes use embed()."""
-    return embed(query_prefix() + text)
+    """Embed a search query (with the model's query prefix, if any). Stored notes use embed_document()."""
+    return embed_many([query_prefix() + text], task="query")[0]
+
+
+def embed_document(text: str) -> list[float]:
+    """Embed a note for storage (with the model's document prefix, if any). Queries use embed_query()."""
+    return embed_many([document_prefix() + text], task="document")[0]
