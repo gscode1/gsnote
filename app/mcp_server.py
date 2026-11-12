@@ -24,7 +24,9 @@ Saving (save_note):
 - Search first; skip duplicates.
 - Space: the one the user names, else the project's default (e.g. from CLAUDE.md or AGENTS.md), else ask.
 
-Recall (search_notes): turn relative dates into since/until using the returned today and timezone."""
+Recall (search_notes):
+- Turn relative dates into since/until using the returned today and timezone.
+- If notes conflict, trust the newest and mention the change."""
 
 mcp = MCPServer("gsnote", instructions=INSTRUCTIONS)
 
