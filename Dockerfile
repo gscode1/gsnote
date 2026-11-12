@@ -22,7 +22,7 @@ RUN set -eux; \
     curl -fsSL "https://github.com/benbjohnson/litestream/releases/download/v${LITESTREAM_VERSION}/litestream-${LITESTREAM_VERSION}-linux-${lsarch}.tar.gz" \
       | tar -xz -C /usr/local/bin litestream
 
-COPY pyproject.toml ./
+COPY pyproject.toml README.md ./
 COPY app ./app
 COPY migrations ./migrations
 
