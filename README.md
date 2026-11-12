@@ -114,7 +114,7 @@ Environment variables (or `.env`); full list in [`.env.example`](.env.example).
 | `TIMEZONE` | `UTC` | IANA name; date-only `since`/`until` mean whole days here |
 | `DB_PATH` | `./data/gsnote.db` | SQLite file (`/data/gsnote.db` in Compose) |
 | `EMBEDDING_PROVIDER` | `local` | `local` (in-process) or `api` (OpenAI-compatible `/embeddings` endpoint) |
-| `EMBEDDING_MODEL` | `BAAI/bge-large-en-v1.5` | Model name |
+| `EMBEDDING_MODEL` | `BAAI/bge-large-en-v1.5` | Model name. For non-English notes use a multilingual model such as `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` with `EMBEDDING_DIM=768` (changing the model needs a fresh database) |
 | `EMBEDDING_DIM` | `1024` | Must match the model; do not change on a populated DB without re-embedding |
 | `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY` | empty | For `EMBEDDING_PROVIDER=api` (key optional) |
 | `RETRIEVAL_TOP_K` | `8` | Default number of results |

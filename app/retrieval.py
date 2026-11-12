@@ -136,6 +136,17 @@ _STOPWORDS = {
     "set", "get", "any", "all", "some",
 }
 
+# Common Polish function words, so e.g. "na" does not match unrelated notes.
+_STOPWORDS_PL = {
+    "a", "i", "w", "we", "z", "ze", "o", "u", "na", "do", "od", "po", "za", "przez", "przy",
+    "dla", "bez", "pod", "nad", "przed", "że", "się", "to", "ten", "ta", "te", "tego",
+    "jest", "są", "był", "była", "było", "czy", "jak", "jaki", "jaka", "jakie",
+    "co", "kto", "gdzie", "kiedy", "nie", "tak", "ale", "lub", "oraz",
+    "mój", "moja", "moje", "mi", "mnie", "ja", "my", "ty", "on", "ona", "ono", "oni",
+    "jej", "jego", "ich", "już", "też", "tylko",
+}
+_STOPWORDS |= _STOPWORDS_PL
+
 
 def _fts5_query(query: str) -> str | None:
     """Build a safe FTS5 MATCH expression from free text (OR of quoted tokens, stopwords dropped)."""
