@@ -117,8 +117,12 @@ Environment variables (or `.env`); full list in [`.env.example`](.env.example).
 | `EMBEDDING_MODEL` | `BAAI/bge-large-en-v1.5` | Model name. For non-English notes use a multilingual model such as `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` with `EMBEDDING_DIM=768` (changing the model needs a fresh database) |
 | `EMBEDDING_DIM` | `1024` | Must match the model; do not change on a populated DB without re-embedding |
 | `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY` | empty | For `EMBEDDING_PROVIDER=api` (key optional) |
-| `RETRIEVAL_TOP_K` | `8` | Default number of results |
-| `RETRIEVAL_CANDIDATE_N` | `20` | Candidates per ranker before fusion |
+| `EMBEDDING_QUERY_PREFIX` | auto | Text prepended to search queries only (notes are embedded as they are, so no re-embedding). Unset: `Represent this sentence for searching relevant passages: ` for `BAAI/bge-*-en-v1.5`, nothing for other models. Set it empty to disable; set it for models that want a query instruction (e.g. `query: ` for e5) |
+| `RETRIEVAL_TOP_K` | `8` | Maximum number of results |
+| `RETRIEVAL_CANDIDATE_N` | `50` | Candidates per ranker before fusion |
+| `RETRIEVAL_GATE` | `true` | Relevance gate for query searches: return only plausibly relevant notes (at most the limit, possibly none). `false` always returns the top results. Listing without a query is never gated |
+| `RETRIEVAL_MIN_SIMILARITY` | auto | Gate: drop notes below this cosine similarity to the query. Auto: `0.45` for `BAAI/bge-*-en-v1.5`, off for other models (their score scales differ, so set it yourself). `0` = off. Higher is stricter |
+| `RETRIEVAL_RELATIVE_GAP` | `0.2` | Gate: drop notes whose similarity is more than this below the best match. `0` = off. Lower is stricter (`0.1` is a good tighter setting for mostly-English notes) |
 | `RRF_K` | `60` | RRF constant |
 | `LITESTREAM_ENABLED`, `S3_*` | off | Optional backup, see below |
 

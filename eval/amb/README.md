@@ -41,9 +41,9 @@ Compare against the baselines with the same arguments: `--memory bm25`, `--memor
 At the pinned commit AMB's qdrant provider crashes in every mode (its `async_retrieve` lacks the
 `filters` argument), so the shim patches that signature; scoring is untouched.
 
-precisionmembench returns up to 20 memories per query and penalises noise, and gsnote (like
-the baselines) has no relevance cutoff, so at the default limit every provider scores ~0 active
-passes. `AMB_PMB_RETURN_CAP=1` (keep only the top N distinct results) separates them better.
+precisionmembench returns up to 20 memories per query and penalises noise. The baselines have
+no relevance cutoff, so at the default limit they score ~0 active passes; gsnote has a
+relevance gate (`RETRIEVAL_GATE`, `RETRIEVAL_MIN_SIMILARITY`, `RETRIEVAL_RELATIVE_GAP`). `AMB_PMB_RETURN_CAP=1` (keep only the top N distinct results) separates them better.
 
 ### QA modes (need LLM keys)
 
@@ -86,9 +86,10 @@ are answer `groq`, judge `gemini`.)
 | env var | default here | note |
 |---|---|---|
 | `EMBEDDING_MODEL` / `EMBEDDING_DIM` | `BAAI/bge-small-en-v1.5` / `384` | fast. **gsnote production uses `bge-large-en-v1.5` / `1024`**; set both to benchmark that |
-| `RETRIEVAL_CANDIDATE_N` | `100` | gsnote's default is 20 per branch, which caps fused results at ~40; raised so chunk dedupe can still return `k` distinct documents |
 
-Any other gsnote setting (`RRF_K`, ...) is honoured from the environment.
+Any other gsnote setting (`RETRIEVAL_CANDIDATE_N`, `RETRIEVAL_GATE`, `RRF_K`, ...) is honoured from
+the environment; the provider does not override gsnote's defaults (candidate pool 50 per branch).
+Set `RETRIEVAL_GATE=false` and `EMBEDDING_QUERY_PREFIX=` to reproduce the pre-gate behaviour.
 Note the first run downloads the embedding model (fastembed cache) and tiktoken's
 `cl100k_base` (used by AMB's chunker).
 

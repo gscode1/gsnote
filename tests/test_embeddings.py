@@ -71,3 +71,58 @@ def test_api_without_base_url_raises(monkeypatch):
 
     with pytest.raises(ValueError, match="EMBEDDING_BASE_URL"):
         embeddings.embed("a")
+
+
+# --- query prefix ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "model",
+    ["BAAI/bge-small-en-v1.5", "BAAI/bge-base-en-v1.5", "BAAI/bge-large-en-v1.5", "baai/BGE-Large-EN-V1.5"],
+)
+def test_query_prefix_auto_detects_bge_v15_english(monkeypatch, model):
+    monkeypatch.setenv("EMBEDDING_MODEL", model)
+    get_settings.cache_clear()
+    assert embeddings.query_prefix() == embeddings.BGE_QUERY_PREFIX
+
+
+@pytest.mark.parametrize(
+    "model",
+    ["nomic-embed-text", "BAAI/bge-m3", "BAAI/bge-small-en", "BAAI/bge-small-zh-v1.5",
+     "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"],
+)
+def test_query_prefix_auto_is_empty_for_other_models(monkeypatch, model):
+    monkeypatch.setenv("EMBEDDING_MODEL", model)
+    get_settings.cache_clear()
+    assert embeddings.query_prefix() == ""
+
+
+def test_query_prefix_explicit_value_wins(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_QUERY_PREFIX", "query: ")
+    get_settings.cache_clear()
+    captured = _fake_post(monkeypatch, {"data": [{"index": 0, "embedding": [1, 2, 3]}]})
+
+    embeddings.embed_query("hello")
+    assert captured["json"]["input"] == ["query: hello"]
+
+
+def test_query_prefix_explicit_empty_disables_autodetect(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_MODEL", "BAAI/bge-large-en-v1.5")
+    monkeypatch.setenv("EMBEDDING_QUERY_PREFIX", "")
+    get_settings.cache_clear()
+    assert embeddings.query_prefix() == ""
+    captured = _fake_post(monkeypatch, {"data": [{"index": 0, "embedding": [1, 2, 3]}]})
+
+    embeddings.embed_query("hello")
+    assert captured["json"]["input"] == ["hello"]
+
+
+def test_embed_query_prefixes_but_embed_does_not(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_MODEL", "BAAI/bge-large-en-v1.5")
+    get_settings.cache_clear()
+    captured = _fake_post(monkeypatch, {"data": [{"index": 0, "embedding": [1, 2, 3]}]})
+
+    embeddings.embed_query("hello")
+    assert captured["json"]["input"] == [embeddings.BGE_QUERY_PREFIX + "hello"]
+    embeddings.embed("hello")
+    assert captured["json"]["input"] == ["hello"]

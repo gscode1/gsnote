@@ -33,9 +33,6 @@ from memory_bench.utils import chunk_text
 
 DEFAULT_EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 DEFAULT_EMBEDDING_DIM = "384"
-# search() fuses at most 2 * retrieval_candidate_n candidates (gsnote default 20). Chunk
-# dedupe needs headroom, so raise it unless the caller pinned RETRIEVAL_CANDIDATE_N.
-DEFAULT_CANDIDATE_N = "100"
 DB_FILENAME = "gsnote.db"
 OVERFETCH = 4
 IMPORT_BATCH = 64
@@ -102,7 +99,6 @@ class GsnoteMemoryProvider(MemoryProvider):
         # environment first, then drop both caches so the new DB_PATH is picked up.
         os.environ.setdefault("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL)
         os.environ.setdefault("EMBEDDING_DIM", DEFAULT_EMBEDDING_DIM)
-        os.environ.setdefault("RETRIEVAL_CANDIDATE_N", DEFAULT_CANDIDATE_N)
         os.environ["DB_PATH"] = db_path
 
         from app import db

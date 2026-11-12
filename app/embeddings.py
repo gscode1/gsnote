@@ -1,9 +1,31 @@
 """Embeddings: in-process fastembed (ONNX, CPU) by default, or any OpenAI-compatible endpoint."""
+import re
 from functools import lru_cache
 
 import httpx
 
 from app.config import get_settings
+
+
+# bge v1.5 English models are trained to see this instruction before *queries* (not documents).
+BGE_QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
+_BGE_V15_EN = re.compile(r"BAAI/bge-[a-z0-9]+-en-v1\.5", re.IGNORECASE)
+
+
+# Default absolute cosine floor for bge v1.5 English models (see app.retrieval._min_similarity).
+BGE_MIN_SIMILARITY = 0.45
+
+
+def is_bge_v15_en(model: str) -> bool:
+    return _BGE_V15_EN.fullmatch(model.strip()) is not None
+
+
+def query_prefix() -> str:
+    """The prefix for query embeddings: the explicit setting, else auto-detected from the model."""
+    settings = get_settings()
+    if settings.embedding_query_prefix is not None:
+        return settings.embedding_query_prefix
+    return BGE_QUERY_PREFIX if is_bge_v15_en(settings.embedding_model) else ""
 
 
 @lru_cache
@@ -47,3 +69,8 @@ def embed_many(texts: list[str]) -> list[list[float]]:
 
 def embed(text: str) -> list[float]:
     return embed_many([text])[0]
+
+
+def embed_query(text: str) -> list[float]:
+    """Embed a search query (with the model's query prefix, if any). Stored notes use embed()."""
+    return embed(query_prefix() + text)
