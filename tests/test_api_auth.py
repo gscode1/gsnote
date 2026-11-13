@@ -44,3 +44,18 @@ def test_correct_token_allowed(client, monkeypatch):
     )
     assert resp.status_code == 200
     assert resp.json() == {"notes": []}
+
+
+def test_search_endpoint_broad_param_controls_the_gate(client, monkeypatch):
+    import app.main as main
+
+    monkeypatch.setenv("API_TOKEN", "s3cret")
+    get_settings.cache_clear()
+    seen = []
+    monkeypatch.setattr(main, "search", lambda *a, **kw: seen.append(kw["gate"]) or [])
+    headers = {"Authorization": "Bearer s3cret"}
+    assert client.get("/search", params={"q": "x"}, headers=headers).status_code == 200
+    assert client.get("/search", params={"q": "x", "broad": "false"}, headers=headers).status_code == 200
+    assert client.get("/search", params={"q": "x", "broad": "true"}, headers=headers).status_code == 200
+    assert client.get("/search", params={"q": "x", "broad": "maybe"}, headers=headers).status_code == 422
+    assert seen == [None, None, False]

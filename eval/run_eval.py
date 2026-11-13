@@ -5,7 +5,12 @@ Seeds a small fixed (query -> expected notes) eval set, then compares:
   - keyword-only (FTS5 BM25)
   - vector-only (sqlite-vec cosine)
 
-Run with: python -m eval.run_eval
+Besides precision@k it reports, for the hybrid search as configured, recall and the average
+number of results returned (the relevance gate can return fewer than k). Compare the gate
+with RETRIEVAL_GATE=false.
+
+Run with: python -m eval.run_eval [path/to/eval_set.json]   (default: eval/eval_set.json;
+eval/eval_set_mixed.json is a mixed Polish/English set that includes no-answer queries)
 """
 import json
 import os
@@ -22,7 +27,7 @@ os.environ.setdefault("DB_PATH", "./data/eval.db")
 from app import db  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.db import cursor, get_conn  # noqa: E402
-from app.embeddings import embed  # noqa: E402
+from app.embeddings import embed_document  # noqa: E402
 from app.retrieval import _keyword_candidates, _vector_candidates, search  # noqa: E402
 
 EVAL_SET_PATH = Path(__file__).resolve().parent / "eval_set.json"
@@ -35,7 +40,7 @@ def seed(eval_set: dict) -> None:
 
     for i, note in enumerate(eval_set["notes"]):
         created_at = (now - timedelta(days=len(eval_set["notes"]) - i)).isoformat()
-        vector = embed(note["content"])
+        vector = embed_document(note["content"])
         with cursor() as cur:
             cur.execute(
                 "INSERT INTO notes (id, content, category, source, created_at, updated_at) "
@@ -56,12 +61,14 @@ def precision_at_k(retrieved_ids: list[str], expected_ids: set[str], k: int) -> 
     return hits / k
 
 
-def run() -> None:
-    eval_set = json.loads(EVAL_SET_PATH.read_text())
+def run(path: Path = EVAL_SET_PATH) -> None:
+    eval_set = json.loads(path.read_text())
     seed(eval_set)
     conn = get_conn()
 
     hybrid_scores, keyword_scores, vector_scores = [], [], []
+    recalls, returned, noise_free, set_precisions = [], [], [], []
+    no_answer = no_answer_empty = 0
 
     print(f"{'query':<55} {'hybrid':>8} {'keyword':>8} {'vector':>8}")
     print("-" * 82)
@@ -70,6 +77,14 @@ def run() -> None:
         expected = set(q["expected_ids"])
 
         hybrid_results = [n["id"] for n in search(q["query"], top_k=TOP_K)]
+        returned.append(len(hybrid_results))
+        if expected:
+            recalls.append(len(expected & set(hybrid_results)) / len(expected))
+            set_precisions.append(len(expected & set(hybrid_results)) / len(hybrid_results) if hybrid_results else 0.0)
+            noise_free.append(bool(hybrid_results) and set(hybrid_results) <= expected)
+        else:
+            no_answer += 1
+            no_answer_empty += not hybrid_results
         keyword_results = _keyword_candidates(conn, q["query"], TOP_K)
         vector_results = _vector_candidates(conn, q["query"], TOP_K)
 
@@ -88,10 +103,17 @@ def run() -> None:
     print(f"{'AVERAGE':<55} {avg(hybrid_scores):>8.2f} {avg(keyword_scores):>8.2f} {avg(vector_scores):>8.2f}")
 
     print()
+    gate = "on" if get_settings().retrieval_gate else "off"
+    print(f"hybrid (relevance gate {gate}): recall@{TOP_K} {avg(recalls):.3f}   "
+          f"precision of returned results {avg(set_precisions):.3f}   avg results {avg(returned):.2f}   "
+          f"result sets with no noise {sum(noise_free)}/{len(noise_free)}")
+    if no_answer:
+        print(f"queries without a relevant note: {no_answer_empty}/{no_answer} returned nothing")
+    print()
     assert avg(hybrid_scores) >= avg(keyword_scores), "hybrid should beat or match keyword-only on average"
     assert avg(hybrid_scores) >= avg(vector_scores), "hybrid should beat or match vector-only on average"
     print("PASS: hybrid RRF >= keyword-only and >= vector-only on precision@%d" % TOP_K)
 
 
 if __name__ == "__main__":
-    run()
+    run(Path(sys.argv[1]) if len(sys.argv) > 1 else EVAL_SET_PATH)

@@ -1,0 +1,547 @@
+{
+ "description": "Mixed Polish/English personal-notes calibration set (short and long notes, paraphrase and keyword queries, plus queries with no relevant note). Written for calibrating the relevance gate; independent of PrecisionMemBench.",
+ "notes": [
+  {
+   "id": "m01",
+   "content": "Decyzja: przechodzimy z Postgresa na SQLite dla gsnote, bo jeden plik i prostszy backup przez Litestream.",
+   "category": "decision"
+  },
+  {
+   "id": "m02",
+   "content": "Dentysta w czwartek o 15:00, ul. Długa 12",
+   "category": "task"
+  },
+  {
+   "id": "m03",
+   "content": "Kup mleko, jajka, chleb i masło w Biedronce",
+   "category": "task"
+  },
+  {
+   "id": "m04",
+   "content": "Idea: add a weekly digest of open loops instead of real-time notifications",
+   "category": "idea"
+  },
+  {
+   "id": "m05",
+   "content": "Meeting with Kasia about Q4 roadmap: ship MCP server first, then web UI. Deadline end of November.",
+   "category": "meeting"
+  },
+  {
+   "id": "m06",
+   "content": "Hasło do wifi u rodziców: zapisane w menedżerze haseł, wpis 'Dom Rodzice'",
+   "category": "note"
+  },
+  {
+   "id": "m07",
+   "content": "Przepis na bigos: kapusta kiszona, świeża kapusta, kiełbasa, boczek, suszone grzyby, śliwki. Gotować 3 dni.",
+   "category": "note"
+  },
+  {
+   "id": "m08",
+   "content": "Reminder: renew car insurance (OC/AC) before 20 December, compare offers on Ubezpieczeniowo and with the broker",
+   "category": "task"
+  },
+  {
+   "id": "m09",
+   "content": "Pomysł na nazwę aplikacji: Notatnik, Zapiski, Pamiętnik. Kasia woli Zapiski.",
+   "category": "idea"
+  },
+  {
+   "id": "m10",
+   "content": "Learned: sqlite-vec vec0 applies k before WHERE filters, so oversample when filtering by space",
+   "category": "note"
+  },
+  {
+   "id": "m11",
+   "content": "Siłownia: wtorek i piątek rano, trening siłowy; niedziela bieganie 10 km",
+   "category": "note"
+  },
+  {
+   "id": "m12",
+   "content": "Trip to Lisbon in March: book flights by January, hotel in Alfama, check passport validity",
+   "category": "task"
+  },
+  {
+   "id": "m13",
+   "content": "Kasia ma urodziny 14 maja, kupić prezent - może książka o górach albo bilety do teatru",
+   "category": "task"
+  },
+  {
+   "id": "m14",
+   "content": "Rozmowa z Markiem o migracji bazy danych: zrobić dry run na kopii produkcji przed piątkiem, backup obowiązkowy",
+   "category": "meeting"
+  },
+  {
+   "id": "m15",
+   "content": "Książki do przeczytania: 'Atomic Habits', 'Deep Work', 'Wiedźmin: Ostatnie życzenie'",
+   "category": "note"
+  },
+  {
+   "id": "m16",
+   "content": "Samochód: przegląd techniczny do 3 marca, wymiana opon na letnie w kwietniu",
+   "category": "task"
+  },
+  {
+   "id": "m17",
+   "content": "Decision: use Hetzner CX22 for the gsnote server, 4 EUR/month, Helsinki region, backups to S3-compatible storage",
+   "category": "decision"
+  },
+  {
+   "id": "m18",
+   "content": "pomidory z działki - podlewać rano",
+   "category": "note"
+  },
+  {
+   "id": "m19",
+   "content": "Idea: let agents save a note automatically after each architecture decision, with the date and the reasons",
+   "category": "idea"
+  },
+  {
+   "id": "m20",
+   "content": "Bug: MCP tools/list returns 401 when the token is passed as a query param; use the Authorization header",
+   "category": "note"
+  },
+  {
+   "id": "m21",
+   "content": "Zapisać się na kurs angielskiego biznesowego, poniedziałki 18:00, początek w październiku",
+   "category": "task"
+  },
+  {
+   "id": "m22",
+   "content": "Anna z księgowości: faktura za hosting do 10-tego każdego miesiąca, VAT 23%",
+   "category": "task"
+  },
+  {
+   "id": "m23",
+   "content": "Weekend plan: Tatry, Morskie Oko, wyjazd w sobotę o 6 rano, zabrać raki i czapkę",
+   "category": "note"
+  },
+  {
+   "id": "m24",
+   "content": "Feedback from standup: Tomek is blocked on the CI pipeline, the Docker cache keeps getting invalidated",
+   "category": "meeting"
+  },
+  {
+   "id": "m25",
+   "content": "Intention: wstawać o 6:30 i zacząć dzień bez telefonu przez pierwszą godzinę",
+   "category": "note"
+  },
+  {
+   "id": "m26",
+   "content": "Kubernetes cluster upgrade planned for 2026-02-14; drain nodes one at a time, check PodDisruptionBudgets",
+   "category": "task"
+  },
+  {
+   "id": "m27",
+   "content": "Kawa: Etiopia Yirgacheffe z palarni Hayb, młynek ustawić na 18 kliknięć",
+   "category": "note"
+  },
+  {
+   "id": "m28",
+   "content": "Embedding model choice: bge-large-en-v1.5 is good for English but weak on Polish; consider multilingual-e5",
+   "category": "decision"
+  },
+  {
+   "id": "m29",
+   "content": "Zadzwonić do hydraulika - cieknie kran w łazience",
+   "category": "task"
+  },
+  {
+   "id": "m30",
+   "content": "Rower: wymienić łańcuch i klocki hamulcowe przed sezonem",
+   "category": "task"
+  },
+  {
+   "id": "m31",
+   "content": "Sam recommended the podcast 'Latent Space' for agent engineering news",
+   "category": "note"
+  },
+  {
+   "id": "m32",
+   "content": "Pomysł: aplikacja do śledzenia wydatków na podstawie zdjęć paragonów, OCR lokalnie",
+   "category": "idea"
+  },
+  {
+   "id": "m33",
+   "content": "Płacę za siłownię 129 zł miesięcznie, karta Multisport odpada",
+   "category": "note"
+  },
+  {
+   "id": "m34",
+   "content": "Retro notes: deployments are too slow, we should cache dependencies and run the tests in parallel",
+   "category": "meeting"
+  },
+  {
+   "id": "m35",
+   "content": "Mama prosiła o pomoc z komputerem w niedzielę - zainstalować drukarkę i zaktualizować Windows",
+   "category": "task"
+  },
+  {
+   "id": "m36",
+   "content": "Konfiguracja nvim: leader na spację, telescope do wyszukiwania, lsp dla pythona przez pyright",
+   "category": "note"
+  },
+  {
+   "id": "m37",
+   "content": "Birthday gift idea for Piotr: a mechanical keyboard, Keychron Q1",
+   "category": "idea"
+  },
+  {
+   "id": "m38",
+   "content": "Podatek: PIT-37 złożyć do końca kwietnia, odliczyć darowiznę i ulgę internetową",
+   "category": "task"
+  },
+  {
+   "id": "m39",
+   "content": "Obiad u Basi w sobotę 19:00, przynieść wino i deser",
+   "category": "task"
+  },
+  {
+   "id": "m40",
+   "content": "Todo: napisać testy dla endpointu /capture, brakuje przypadku z pustą treścią",
+   "category": "task"
+  },
+  {
+   "id": "m41",
+   "content": "OAuth refresh tokens should rotate on every use; store only the hash in the database",
+   "category": "decision"
+  },
+  {
+   "id": "m42",
+   "content": "Lekarz rodzinny: skierowanie na badania krwi, na czczo, rano",
+   "category": "task"
+  },
+  {
+   "id": "m43",
+   "content": "Zakupy na grilla: karkówka, kiełbasy, ogórki, ketchup, węgiel drzewny",
+   "category": "task"
+  },
+  {
+   "id": "m44",
+   "content": "Tom suggested using Litestream replicas to a second region for disaster recovery",
+   "category": "note"
+  },
+  {
+   "id": "m45",
+   "content": "Mój ulubiony film: Seksmisja, drugie miejsce Rejs",
+   "category": "note"
+  },
+  {
+   "id": "m46",
+   "content": "Wyjazd do Gdańska 5-7 czerwca na konferencję, nocleg w hotelu Hilton już zarezerwowany",
+   "category": "task"
+  },
+  {
+   "id": "m47",
+   "content": "Nauczyć się Rusta: zacząć od książki 'The Rust Programming Language', rozdziały 1-10 do końca miesiąca",
+   "category": "task"
+  },
+  {
+   "id": "m48",
+   "content": "Ideas for the blog: why I built gsnote, SQLite as the only dependency, hybrid search explained",
+   "category": "idea"
+  }
+ ],
+ "queries": [
+  {
+   "query": "jakie baza danych używamy w gsnote?",
+   "expected_ids": [
+    "m01",
+    "m17"
+   ]
+  },
+  {
+   "query": "when is my dentist appointment",
+   "expected_ids": [
+    "m02"
+   ]
+  },
+  {
+   "query": "dentysta kiedy",
+   "expected_ids": [
+    "m02"
+   ]
+  },
+  {
+   "query": "lista zakupów spożywczych",
+   "expected_ids": [
+    "m03",
+    "m43"
+   ]
+  },
+  {
+   "query": "what should I remember about the Q4 roadmap",
+   "expected_ids": [
+    "m05"
+   ]
+  },
+  {
+   "query": "jak zrobić bigos",
+   "expected_ids": [
+    "m07"
+   ]
+  },
+  {
+   "query": "insurance renewal deadline",
+   "expected_ids": [
+    "m08"
+   ]
+  },
+  {
+   "query": "ubezpieczenie samochodu OC",
+   "expected_ids": [
+    "m08"
+   ]
+  },
+  {
+   "query": "nazwa aplikacji",
+   "expected_ids": [
+    "m09"
+   ]
+  },
+  {
+   "query": "sqlite-vec filtering gotcha",
+   "expected_ids": [
+    "m10"
+   ]
+  },
+  {
+   "query": "plan treningowy na siłowni",
+   "expected_ids": [
+    "m11",
+    "m33"
+   ]
+  },
+  {
+   "query": "plans for the Lisbon trip",
+   "expected_ids": [
+    "m12"
+   ]
+  },
+  {
+   "query": "urodziny Kasi prezent",
+   "expected_ids": [
+    "m13"
+   ]
+  },
+  {
+   "query": "migracja bazy danych z Markiem",
+   "expected_ids": [
+    "m14"
+   ]
+  },
+  {
+   "query": "jakie książki chcę przeczytać",
+   "expected_ids": [
+    "m15",
+    "m47"
+   ]
+  },
+  {
+   "query": "kiedy przegląd techniczny auta",
+   "expected_ids": [
+    "m16"
+   ]
+  },
+  {
+   "query": "which server provider do we host on",
+   "expected_ids": [
+    "m17"
+   ]
+  },
+  {
+   "query": "problem z autoryzacją MCP 401",
+   "expected_ids": [
+    "m20"
+   ]
+  },
+  {
+   "query": "kurs angielskiego",
+   "expected_ids": [
+    "m21"
+   ]
+  },
+  {
+   "query": "kiedy płacić fakturę za hosting",
+   "expected_ids": [
+    "m22"
+   ]
+  },
+  {
+   "query": "wyjazd w Tatry",
+   "expected_ids": [
+    "m23"
+   ]
+  },
+  {
+   "query": "CI pipeline problem Docker cache",
+   "expected_ids": [
+    "m24",
+    "m34"
+   ]
+  },
+  {
+   "query": "poranna rutyna bez telefonu",
+   "expected_ids": [
+    "m25"
+   ]
+  },
+  {
+   "query": "kubernetes upgrade",
+   "expected_ids": [
+    "m26"
+   ]
+  },
+  {
+   "query": "jaką kawę kupować",
+   "expected_ids": [
+    "m27"
+   ]
+  },
+  {
+   "query": "which embedding model should we use for Polish notes",
+   "expected_ids": [
+    "m28"
+   ]
+  },
+  {
+   "query": "hydraulik kran",
+   "expected_ids": [
+    "m29"
+   ]
+  },
+  {
+   "query": "podcasty o agentach AI",
+   "expected_ids": [
+    "m31"
+   ]
+  },
+  {
+   "query": "ile kosztuje siłownia",
+   "expected_ids": [
+    "m33"
+   ]
+  },
+  {
+   "query": "pomoc mamie z komputerem",
+   "expected_ids": [
+    "m35"
+   ]
+  },
+  {
+   "query": "ustawienia neovim",
+   "expected_ids": [
+    "m36"
+   ]
+  },
+  {
+   "query": "gift ideas for friends' birthdays",
+   "expected_ids": [
+    "m37",
+    "m13"
+   ]
+  },
+  {
+   "query": "termin rozliczenia PIT",
+   "expected_ids": [
+    "m38"
+   ]
+  },
+  {
+   "query": "obiad u Basi",
+   "expected_ids": [
+    "m39"
+   ]
+  },
+  {
+   "query": "testy endpointu capture",
+   "expected_ids": [
+    "m40"
+   ]
+  },
+  {
+   "query": "refresh token security decision",
+   "expected_ids": [
+    "m41"
+   ]
+  },
+  {
+   "query": "badania krwi",
+   "expected_ids": [
+    "m42"
+   ]
+  },
+  {
+   "query": "disaster recovery backups replication",
+   "expected_ids": [
+    "m44",
+    "m01"
+   ]
+  },
+  {
+   "query": "konferencja w Gdańsku hotel",
+   "expected_ids": [
+    "m46"
+   ]
+  },
+  {
+   "query": "nauka Rusta",
+   "expected_ids": [
+    "m47"
+   ]
+  },
+  {
+   "query": "blog post ideas",
+   "expected_ids": [
+    "m48"
+   ]
+  },
+  {
+   "query": "co robić żeby szybciej wdrażać zmiany",
+   "expected_ids": [
+    "m34",
+    "m24"
+   ]
+  },
+  {
+   "query": "what is the capital of Australia",
+   "expected_ids": []
+  },
+  {
+   "query": "jaka jest pogoda w Krakowie",
+   "expected_ids": []
+  },
+  {
+   "query": "quarterly tax return for the US",
+   "expected_ids": []
+  },
+  {
+   "query": "przepis na pierogi ruskie",
+   "expected_ids": []
+  },
+  {
+   "query": "who won the football world cup in 2018",
+   "expected_ids": []
+  },
+  {
+   "query": "how do I configure a PostgreSQL replication slot",
+   "expected_ids": []
+  },
+  {
+   "query": "kiedy mam urlop w sierpniu",
+   "expected_ids": []
+  },
+  {
+   "query": "my favourite color",
+   "expected_ids": []
+  },
+  {
+   "query": "lista leków które biorę",
+   "expected_ids": []
+  },
+  {
+   "query": "tips for learning to play the guitar",
+   "expected_ids": []
+  }
+ ]
+}

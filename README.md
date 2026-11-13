@@ -55,7 +55,7 @@ Other MCP clients: add an HTTP/streamable-HTTP server with the URL `http://local
 | Tool | What it does |
 |---|---|
 | `save_note` | Save a note (`content`, optional `space`, `category`) |
-| `search_notes` | Hybrid search; optional `query`, `space`, `category`, `since`, `until`, `limit`. No query lists newest matching notes. Returns today's date and timezone so the agent can resolve "last week" |
+| `search_notes` | Hybrid search; optional `query`, `space`, `category`, `since`, `until`, `limit`, `broad`. No query lists newest matching notes. `broad=true` skips the relevance gate (see `RETRIEVAL_GATE`) for open-ended questions about preferences, habits or history that span many notes. Returns today's date and timezone so the agent can resolve "last week" |
 | `list_spaces` | List spaces with note counts |
 | `delete_note` | Permanently delete a note by id |
 
@@ -87,7 +87,7 @@ gsnote export -o gsnote-export.json
 gsnote import gsnote-export.json
 ```
 
-`search` also takes `--category`. `since`/`until` accept `YYYY-MM-DD` or an ISO-8601 datetime, inclusive.
+`search` also takes `--category` and `--broad` (skip the relevance gate). `since`/`until` accept `YYYY-MM-DD` or an ISO-8601 datetime, inclusive.
 
 ## HTTP API
 
@@ -97,7 +97,7 @@ All routes except `/health` need `Authorization: Bearer $API_TOKEN`. If `API_TOK
 |---|---|
 | `GET /health` | Liveness (no auth) |
 | `POST /capture` | Save a note: `{content, space?, category?, source?}` |
-| `GET /search` | `q`, `space`, `category`, `since`, `until`, `top_k` |
+| `GET /search` | `q`, `space`, `category`, `since`, `until`, `top_k`, `broad` (`true` skips the relevance gate) |
 | `GET /spaces` | Spaces with counts |
 | `DELETE /notes/{id}` | Delete a note |
 | `GET /export` | All notes as JSON |
@@ -114,11 +114,16 @@ Environment variables (or `.env`); full list in [`.env.example`](.env.example).
 | `TIMEZONE` | `UTC` | IANA name; date-only `since`/`until` mean whole days here |
 | `DB_PATH` | `./data/gsnote.db` | SQLite file (`/data/gsnote.db` in Compose) |
 | `EMBEDDING_PROVIDER` | `local` | `local` (in-process) or `api` (OpenAI-compatible `/embeddings` endpoint) |
-| `EMBEDDING_MODEL` | `BAAI/bge-large-en-v1.5` | Model name. For non-English notes use a multilingual model such as `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` with `EMBEDDING_DIM=768` (changing the model needs a fresh database) |
+| `EMBEDDING_MODEL` | `BAAI/bge-large-en-v1.5` | Model name. For Polish or other non-English notes use a multilingual model: `intfloat/multilingual-e5-large` (`EMBEDDING_DIM=1024`, prefixes are automatic; set `RETRIEVAL_RELATIVE_GAP=0.03`, its scores are bunched together). Alternatives: `jinaai/jina-embeddings-v3` (1024; CC-BY-NC license, large, slow) and `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` (768; fast, short input limit). Changing the model needs a fresh database or re-embedding of all notes |
 | `EMBEDDING_DIM` | `1024` | Must match the model; do not change on a populated DB without re-embedding |
 | `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY` | empty | For `EMBEDDING_PROVIDER=api` (key optional) |
-| `RETRIEVAL_TOP_K` | `8` | Default number of results |
-| `RETRIEVAL_CANDIDATE_N` | `20` | Candidates per ranker before fusion |
+| `EMBEDDING_QUERY_PREFIX` | auto | Text prepended to search queries only (so changing it needs no re-embedding). Unset: `Represent this sentence for searching relevant passages: ` for `BAAI/bge-*-en-v1.5`, nothing for other models. `query: ` for `intfloat/*e5*`, nothing for other models. Set it empty to disable |
+| `EMBEDDING_DOCUMENT_PREFIX` | auto | Same, for stored notes only (never queries). Unset: `passage: ` for `intfloat/*e5*`, nothing for other models (bge and jina need none). Set it empty to disable. Changing it on a populated database needs re-embedding |
+| `RETRIEVAL_TOP_K` | `8` | Maximum number of results |
+| `RETRIEVAL_CANDIDATE_N` | `50` | Candidates per ranker before fusion |
+| `RETRIEVAL_GATE` | `true` | Relevance gate for query searches: return only plausibly relevant notes (at most the limit, possibly none). `false` always returns the top results. A search can skip the gate per call with `broad=true` (MCP `search_notes`, `GET /search`, CLI `--broad`). Listing without a query is never gated |
+| `RETRIEVAL_MIN_SIMILARITY` | auto | Gate: drop notes below this cosine similarity to the query. Auto: `0.45` for `BAAI/bge-*-en-v1.5`, off for other models (their score scales differ, so set it yourself). `0` = off. Higher is stricter |
+| `RETRIEVAL_RELATIVE_GAP` | `0.2` | Gate: drop notes whose similarity is more than this below the best match. `0` = off. Lower is stricter (`0.1` is a good tighter setting for mostly-English notes). The scale depends on the model: `intfloat/multilingual-e5-large` scores cluster between about 0.75 and 0.9, so `0.2` never filters anything there; use about `0.03` |
 | `RRF_K` | `60` | RRF constant |
 | `LITESTREAM_ENABLED`, `S3_*` | off | Optional backup, see below |
 

@@ -89,9 +89,11 @@ def search_endpoint(
     since: str | None = None,
     until: str | None = None,
     top_k: int | None = None,
+    broad: bool = False,
 ):
     try:
-        notes = search(q, space=space, category=category, since=since, until=until, top_k=top_k)
+        notes = search(q, space=space, category=category, since=since, until=until, top_k=top_k,
+                       gate=False if broad else None)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return {"notes": notes}

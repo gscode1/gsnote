@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 from app.capture import normalize_category
 from app.config import get_settings
 from app.db import get_conn
-from app.embeddings import embed
+from app.embeddings import BGE_MIN_SIMILARITY, embed_query, is_bge_v15_en
 from app.spaces import normalize_space
 
 # Compare created_at through SQLite datetime(): it normalizes any ISO-8601 string (with or
@@ -97,8 +97,10 @@ def _vector_candidates(
     query: str,
     n: int,
     filters: Filters = Filters(),
+    vector: list[float] | None = None,
 ) -> list[str]:
-    vector = embed(query)
+    if vector is None:
+        vector = embed_query(query)
     # ponytail: vec0 applies k before SQL filters, so oversample then filter
     fetch_k = min(max(n * 20, n), 500) if filters else n
     rows = conn.execute(
@@ -126,6 +128,23 @@ def _vector_candidates(
     return [i for i in ids if i in kept][:n]
 
 
+def _similarities(conn: sqlite3.Connection, ids: list[str], vector: list[float]) -> dict[str, float]:
+    """Exact cosine similarity between the query vector and each note's stored embedding.
+
+    note_vectors uses sqlite-vec's default L2 distance for its KNN ranking; the relevance gate
+    wants cosine, which is comparable across queries and independent of vector length.
+    """
+    if not ids:
+        return {}
+    placeholders = ",".join("?" for _ in ids)
+    rows = conn.execute(
+        f"SELECT note_id, vec_distance_cosine(embedding, ?) AS d FROM note_vectors"
+        f" WHERE note_id IN ({placeholders})",
+        (json.dumps(vector), *ids),
+    ).fetchall()
+    return {r["note_id"]: 1.0 - r["d"] for r in rows}
+
+
 _STOPWORDS = {
     "a", "an", "the", "i", "me", "my", "myself", "we", "you", "he", "she", "it", "they",
     "is", "am", "are", "was", "were", "be", "been", "being",
@@ -148,18 +167,23 @@ _STOPWORDS_PL = {
 _STOPWORDS |= _STOPWORDS_PL
 
 
-def _fts5_query(query: str) -> str | None:
-    """Build a safe FTS5 MATCH expression from free text (OR of quoted tokens, stopwords dropped)."""
+def _fts5_query(query: str, operator: str = "OR") -> str | None:
+    """Build a safe FTS5 MATCH expression from free text (quoted tokens joined by OR, or by AND
+    for notes containing every token; stopwords dropped)."""
     tokens = [t for t in re.findall(r"[\w']+", query, re.UNICODE) if t.lower() not in _STOPWORDS]
     if not tokens:
         return None
-    return " OR ".join(f'"{t}"' for t in tokens)
+    return f" {operator} ".join(f'"{t}"' for t in tokens)
 
 
 def _keyword_candidates(
-    conn: sqlite3.Connection, query: str, n: int, filters: Filters = Filters()
+    conn: sqlite3.Connection,
+    query: str,
+    n: int,
+    filters: Filters = Filters(),
+    match_all: bool = False,
 ) -> list[str]:
-    fts_query = _fts5_query(query)
+    fts_query = _fts5_query(query, "AND" if match_all else "OR")
     if fts_query is None:
         return []
     # FTS5 bm25: lower score = better match -> ascending order. Join notes to filter.
@@ -187,6 +211,42 @@ def _rrf_fuse(ranked_lists: list[list[str]], k: int) -> list[tuple[str, float]]:
     return sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
 
 
+def _min_similarity(settings) -> float:
+    """Absolute cosine floor: the setting, else a floor for models with a known score scale.
+
+    bge v1.5 English scores of related text sit well above 0.45 (query prefix on), while
+    other models scale differently (multilingual MiniLM/mpnet relevant hits can be ~0.2),
+    so an absolute floor is only safe by default for bge.
+    """
+    if settings.retrieval_min_similarity is not None:
+        return settings.retrieval_min_similarity
+    return BGE_MIN_SIMILARITY if is_bge_v15_en(settings.embedding_model) else 0.0
+
+
+def gate_results(
+    results: list[dict],
+    *,
+    min_similarity: float,
+    relative_gap: float,
+    exempt: set[str] = frozenset(),
+) -> list[dict]:
+    """Keep results that are plausibly relevant, preserving order.
+
+    A result survives when its cosine similarity is at least `min_similarity` AND within
+    `relative_gap` of the best similarity in the candidate pool (0 disables either check).
+    Notes in `exempt` (keyword matches containing every query term) always survive, and so
+    does a result without a similarity (nothing to judge it by).
+    """
+    sims = [r["similarity"] for r in results if r.get("similarity") is not None]
+    if not sims:
+        return results
+    cutoff = max(min_similarity, max(sims) - relative_gap if relative_gap > 0 else min_similarity)
+    return [
+        r for r in results
+        if r.get("similarity") is None or r["id"] in exempt or r["similarity"] >= cutoff
+    ]
+
+
 def search(
     query: str | None = None,
     *,
@@ -195,8 +255,12 @@ def search(
     since: str | None = None,
     until: str | None = None,
     top_k: int | None = None,
+    gate: bool | None = None,
 ) -> list[dict]:
     """Hybrid retrieval over notes matching the filters (space=None = all spaces).
+
+    gate: relevance gate for query searches. None follows settings.retrieval_gate; False skips
+    it (broad recall: the top `top_k` by fused rank); True forces it.
 
     since/until: YYYY-MM-DD (whole day in the configured TIMEZONE) or an ISO-8601 datetime.
     Raises ValueError on invalid filters. With an empty query, lists the newest matching
@@ -214,11 +278,12 @@ def search(
             f" ORDER BY {_CREATED.format(col='')} DESC, created_at DESC LIMIT ?",
             [*filter_params, top_k],
         ).fetchall()
-        return [{**dict(r), "score": None} for r in rows]
+        return [{**dict(r), "score": None, "similarity": None} for r in rows]
 
     n = settings.retrieval_candidate_n
+    vector = embed_query(query)
     fused = _rrf_fuse(
-        [_vector_candidates(conn, query, n, filters), _keyword_candidates(conn, query, n, filters)],
+        [_vector_candidates(conn, query, n, filters, vector), _keyword_candidates(conn, query, n, filters)],
         settings.rrf_k,
     )
     if not fused:
@@ -231,10 +296,21 @@ def search(
     ).fetchall()
     by_id = {r["id"]: dict(r) for r in rows}
 
+    similarities = _similarities(conn, list(by_id), vector)
     results = []
     for note_id, score in fused:
         note = by_id.get(note_id)
         if note is not None:
             note["score"] = score
+            note["similarity"] = similarities.get(note_id)
             results.append(note)
+
+    if settings.retrieval_gate if gate is None else gate:
+        exempt = set(_keyword_candidates(conn, query, n, filters, match_all=True))
+        results = gate_results(
+            results,
+            min_similarity=_min_similarity(settings),
+            relative_gap=settings.retrieval_relative_gap,
+            exempt=exempt,
+        )
     return results[:top_k]

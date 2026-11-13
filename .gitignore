@@ -14,3 +14,7 @@ docs/
 AGENTS.md
 k8s/
 my-secrets.yaml
+
+# AMB benchmark harness (eval/amb)
+eval/amb/.vendor/
+eval/amb/outputs/
