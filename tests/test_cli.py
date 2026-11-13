@@ -99,6 +99,13 @@ def test_search_filters_passed_through(api, monkeypatch, capsys):
         assert part in url
 
 
+def test_search_broad_flag(api, monkeypatch, capsys):
+    assert run(["search", "tap", "--broad"], monkeypatch) == 0
+    assert "broad=true" in api[0][1]
+    assert run(["search", "tap"], monkeypatch) == 0
+    assert "broad" not in api[1][1]
+
+
 def test_search_without_query_lists_and_omits_unset_params(api, monkeypatch, capsys):
     assert run(["search", "--since", "2026-03-01"], monkeypatch) == 0
     url = api[0][1]

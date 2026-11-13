@@ -60,6 +60,28 @@ def test_search_notes_tool_filters_and_reports_today(monkeypatch):
         mcp_server.search_notes("budget", since="last week")
 
 
+def test_search_notes_broad_param_controls_the_gate(monkeypatch):
+    seen = []
+    real = mcp_server.search
+    monkeypatch.setattr(mcp_server, "search", lambda *a, **kw: seen.append(kw["gate"]) or real(*a, **kw))
+    mcp_server.search_notes("budget")
+    mcp_server.search_notes("budget", broad=False)
+    mcp_server.search_notes("budget", broad=True)
+    assert seen == [None, None, False]  # default follows the setting; broad skips the gate
+
+
+def test_search_notes_broad_returns_weaker_matches():
+    mcp_server.save_note("Quarterly roadmap meeting: ship the MCP server first")
+    for text in ("Buy oat milk, eggs and bananas", "Renew the passport before the trip to Japan",
+                 "Pick up the dry cleaning before Friday", "Call the dentist to reschedule"):
+        mcp_server.save_note(text)
+    q = "plans for the product roadmap"
+    narrow = mcp_server.search_notes(q)["notes"]
+    broad = mcp_server.search_notes(q, broad=True)["notes"]
+    assert len(broad) == 5 and len(narrow) < len(broad)
+    assert broad[0]["content"].startswith("Quarterly roadmap")
+
+
 def test_list_spaces_and_delete_tools():
     n = mcp_server.save_note("a", space="work")
     mcp_server.save_note("b", space="work")
@@ -184,5 +206,6 @@ def test_mcp_protocol_guidance_titles_annotations(server_url):
     for n, params in props.items():
         for pname, schema in params.items():
             assert schema.get("description"), f"{n}.{pname} lacks a description"
+    assert props["search_notes"]["broad"]["type"] == "boolean" and props["search_notes"]["broad"]["default"] is False
     assert props["search_notes"]["limit"]["maximum"] == 50 and props["search_notes"]["limit"]["minimum"] == 1
     assert tools["list_spaces"].input_schema.get("properties", {}) == {}

@@ -65,7 +65,7 @@ def test_user_isolation(provider):
     assert {"d-db", "d-bob"} <= {d.id for d in everyone}
 
 
-def test_chunk_dedupe_back_to_doc_id(provider):
+def test_chunks_returned_with_original_doc_id_and_no_per_doc_dedup(provider):
     long_text = " ".join(f"filler{i}" for i in range(1500)) + " the zebra crossing uses a pelican signal"
     assert len(chunk_text(long_text)) > 1
     provider.ingest([
@@ -76,20 +76,53 @@ def test_chunk_dedupe_back_to_doc_id(provider):
 
     note_ids = {r["id"] for r in search("pelican signal", space="u", top_k=20)}
     assert {"long::0", "long::1"} <= note_ids  # stored as several chunk notes
-    docs, _ = provider.retrieve("filler zebra pelican signal", k=5, user_id="u")
+    docs, raw = provider.retrieve("filler zebra pelican signal", k=5, user_id="u")
     ids = [d.id for d in docs]
-    assert len(ids) == len(set(ids))  # one hit per original document
-    assert set(ids) == {"long", "short"}
+    assert ids.count("long") > 1  # several chunks of one doc may come back, like bm25
+    assert set(ids) <= {"long", "short"}  # the relevance gate may drop the unrelated "short"
     assert all("::" not in i for i in ids)
+    assert all(d.source_ids == [d.id] for d in docs)
+    assert len({d.content for d in docs}) == len(docs)  # distinct chunks
+    assert [r["content"] for r in raw["results"]] == [d.content for d in docs]  # raw == returned
 
 
-def test_k_distinct_docs_despite_chunks(provider):
-    # Every doc is 3 chunks that all match; k=4 must still yield 4 distinct docs.
+def test_top_k_chunks_even_when_one_doc_dominates(provider):
+    # Every doc is 3 chunks that all match; k=4 yields exactly 4 chunks (not 4 distinct docs).
     word = "quokka"
     docs = [Document(id=f"doc{i}", content=" ".join([word] * 1400), user_id="u") for i in range(6)]
     provider.ingest(docs)
-    got, _ = provider.retrieve(word, k=4, user_id="u")
-    assert len(got) == 4 and len({d.id for d in got}) == 4
+    got, raw = provider.retrieve(word, k=4, user_id="u")
+    assert len(got) == 4 and len(raw["results"]) == 4
+    assert all(d.id.startswith("doc") and "::" not in d.id for d in got)
+
+
+def test_gate_env_var(monkeypatch):
+    from gsnote_provider import _gate_from_env
+
+    monkeypatch.delenv("GSNOTE_AMB_GATE", raising=False)
+    assert _gate_from_env() is None
+    for v, want in [("on", True), ("ON", True), ("off", False), ("false", False), ("", None)]:
+        monkeypatch.setenv("GSNOTE_AMB_GATE", v)
+        assert _gate_from_env() is want
+    monkeypatch.setenv("GSNOTE_AMB_GATE", "maybe")
+    with pytest.raises(ValueError):
+        _gate_from_env()
+
+
+def test_gate_env_var_is_passed_to_search(provider, monkeypatch):
+    provider.ingest(_docs())
+    import app.retrieval as retrieval
+
+    seen = []
+    real = retrieval.search
+    monkeypatch.setattr(retrieval, "search", lambda *a, **kw: seen.append(kw.get("gate")) or real(*a, **kw))
+    for v, want in [("off", False), ("on", True)]:
+        monkeypatch.setenv("GSNOTE_AMB_GATE", v)
+        provider.retrieve("PostgreSQL", k=3, user_id="alice")
+        assert seen[-1] is want
+    monkeypatch.delenv("GSNOTE_AMB_GATE")
+    provider.retrieve("PostgreSQL", k=3, user_id="alice")
+    assert seen[-1] is None
 
 
 def test_timestamps_stored(provider):

@@ -175,6 +175,23 @@ def test_gate_drops_unrelated_notes_but_keeps_the_relevant_one(monkeypatch):
     assert [r["content"] for r in search("plans for the product roadmap", top_k=20)] == [ROADMAP]
 
 
+def test_gate_param_overrides_the_setting(monkeypatch):
+    _seed_roadmap_and_noise()  # setting default: gate on
+    q = "plans for the product roadmap"
+    gated = search(q, top_k=20)
+    assert len(gated) < 1 + len(NOISE)
+    assert search(q, top_k=20, gate=None) == gated  # None follows the setting
+    ungated = search(q, top_k=20, gate=False)
+    assert len(ungated) == 1 + len(NOISE)  # broad: nothing dropped
+    assert ungated[0]["content"] == ROADMAP and [r["id"] for r in ungated[: len(gated)]] == [r["id"] for r in gated]
+    assert [r["id"] for r in search(q, top_k=20, gate=True)] == [r["id"] for r in gated]
+
+    monkeypatch.setenv("RETRIEVAL_GATE", "false")
+    get_settings.cache_clear()
+    assert len(search(q, top_k=20)) == 1 + len(NOISE)
+    assert len(search(q, top_k=20, gate=True)) < 1 + len(NOISE)  # forced on despite the setting
+
+
 def test_gate_can_be_disabled_by_setting(monkeypatch):
     monkeypatch.setenv("RETRIEVAL_GATE", "false")
     get_settings.cache_clear()

@@ -9,8 +9,14 @@ Mapping:
   AMB Document   -> one note per 512-token chunk (AMB's ``chunk_text``, same as bm25),
                     note id ``"<doc.id>::<chunk index>"``
   Document.timestamp -> note ``created_at`` (when it parses as ISO-8601)
-  retrieve()     -> ``search(query, space=..., top_k=...)``, chunk hits deduped back to the
-                    original document id (over-fetched so up to k distinct docs come back)
+  retrieve()     -> ``search(query, space=..., top_k=k)``: the top-k distinct CHUNKS, like AMB's
+                    bm25 baseline (no per-document dedup, so several chunks of one session may
+                    come back). Each result is a Document whose ``id`` is the original doc id
+                    (so ids can repeat), ``source_ids=[id]`` and ``content`` the chunk text.
+                    Deduping to one chunk per document dropped evidence chunks: another chunk
+                    of the same session often outranks the one holding the answer.
+  GSNOTE_AMB_GATE -> "on"/"off" forces gsnote's relevance gate for retrieve() (default: follow
+                    the RETRIEVAL_GATE setting).
 
 Process-global state: gsnote keeps its settings and SQLite connection in module globals,
 so one provider instance per process owns them. ``concurrency = 1`` accordingly.
@@ -34,7 +40,6 @@ from memory_bench.utils import chunk_text
 DEFAULT_EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 DEFAULT_EMBEDDING_DIM = "384"
 DB_FILENAME = "gsnote.db"
-OVERFETCH = 4
 IMPORT_BATCH = 64
 
 _SPACE_MAX = 32  # app.spaces: [a-z0-9][a-z0-9-]{0,31}
@@ -68,6 +73,18 @@ def _created_at(timestamp: str | None) -> str | None:
         return None
 
 
+def _gate_from_env() -> bool | None:
+    """GSNOTE_AMB_GATE: "on"/"off" (also true/false/1/0) -> force the gate; unset/empty -> None."""
+    raw = os.environ.get("GSNOTE_AMB_GATE", "").strip().lower()
+    if raw in ("", "default"):
+        return None
+    if raw in ("on", "true", "1", "yes"):
+        return True
+    if raw in ("off", "false", "0", "no"):
+        return False
+    raise ValueError(f"GSNOTE_AMB_GATE must be 'on' or 'off', got {raw!r}")
+
+
 def _original_id(note_id: str) -> str:
     return note_id.rsplit(_ID_SEP, 1)[0]
 
@@ -77,7 +94,7 @@ class GsnoteMemoryProvider(MemoryProvider):
     description = (
         "gsnote: self-hosted notes memory. Hybrid search (sqlite-vec vectors + FTS5 BM25, fused "
         "with RRF) over a single SQLite file. Documents are split into 512-token chunks, one "
-        "note per chunk; user_id maps to a gsnote space. Default embedding bge-small-en-v1.5 (384d)."
+        "note per chunk; retrieval returns the top-k chunks; user_id maps to a gsnote space. Default embedding bge-small-en-v1.5 (384d)."
     )
     kind = "local"
     link = "https://github.com/gscode1/gsnote"
@@ -186,26 +203,20 @@ class GsnoteMemoryProvider(MemoryProvider):
         from app.retrieval import search
 
         space = space_for_user(user_id) if user_id is not None else None
-        results = search(query, space=space, top_k=max(k, 1) * OVERFETCH)
+        results = search(query, space=space, top_k=max(k, 1), gate=_gate_from_env())
 
-        docs: list[Document] = []
-        seen: set[str] = set()
-        for note in results:
-            orig = _original_id(note["id"])
-            if orig in seen:
-                continue
-            seen.add(orig)
-            docs.append(
-                Document(
-                    id=orig,
-                    content=note["content"],
-                    user_id=user_id,
-                    timestamp=note.get("created_at"),
-                    source_ids=[orig],
-                )
+        # Top-k distinct chunks, no per-document dedup (same as AMB's bm25 baseline). Chunk note
+        # ids are unique, so the same doc id may appear several times.
+        docs = [
+            Document(
+                id=(orig := _original_id(note["id"])),
+                content=note["content"],
+                user_id=user_id,
+                timestamp=note.get("created_at"),
+                source_ids=[orig],
             )
-            if len(docs) >= k:
-                break
+            for note in results[:k]
+        ]
         # Some AMB datasets (e.g. LongMemEval) put raw_response into the answer prompt instead of
         # the rendered docs, so raw must hold exactly the k returned memories (with their dates),
         # never the over-fetched candidate pool.

@@ -88,10 +88,19 @@ def search_notes(
         Field(description="Inclusive end: YYYY-MM-DD or ISO-8601 datetime, in the server timezone."),
     ] = None,
     limit: Annotated[int, Field(ge=1, le=50, description="Maximum notes to return.")] = 10,
+    broad: Annotated[
+        bool,
+        Field(
+            description="Set true for open-ended questions about the user's preferences, habits or "
+            "history that may span many notes: skips the relevance filter so weaker matches are "
+            "returned too. Default false returns only close matches."
+        ),
+    ] = False,
 ) -> dict[str, Any]:
     """Search notes by meaning and keywords. Without a query, list matching notes newest first. Returns today's date and timezone."""
     try:
-        notes = search(query, space=space, category=category, since=since, until=until, top_k=limit)
+        notes = search(query, space=space, category=category, since=since, until=until, top_k=limit,
+                       gate=False if broad else None)
     except ValueError as e:
         raise ToolError(str(e)) from e
     now = datetime.now(ZoneInfo(get_settings().timezone))

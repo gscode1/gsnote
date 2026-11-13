@@ -75,10 +75,11 @@ are answer `groq`, judge `gemini`.)
   (production embedding + FTS5 + sqlite-vec code). `Document.timestamp` becomes `created_at`
   when it parses as ISO-8601, else the ingest time. Re-ingesting is idempotent; the same
   document id under a different user raises.
-- **Retrieve**: `app.retrieval.search(query, space=..., top_k=4*k)`, then chunk hits are
-  deduplicated to the original document id in rank order and cut to `k`. Returned
-  `Document.id` is the original id, `source_ids` is `[id]`, `content` is the matching chunk.
-  `raw` is `{"results": [...gsnote result dicts with scores...]}`.
+- **Retrieve**: `app.retrieval.search(query, space=..., top_k=k)` returns the top-k distinct
+  chunks, like AMB's bm25 baseline: no per-document dedup, so one session can contribute several
+  chunks and `Document.id` (the original id, `source_ids=[id]`) may repeat. Dedup to one chunk per
+  document used to drop evidence chunks whenever another chunk of the same session ranked higher.
+  `raw` is `{"results": [{id, date, content}, ...]}`, exactly the k returned memories.
 - `concurrency = 1`: gsnote keeps one shared SQLite connection and global settings.
 
 ## Configuration
@@ -86,6 +87,7 @@ are answer `groq`, judge `gemini`.)
 | env var | default here | note |
 |---|---|---|
 | `EMBEDDING_MODEL` / `EMBEDDING_DIM` | `BAAI/bge-small-en-v1.5` / `384` | fast. **gsnote production uses `bge-large-en-v1.5` / `1024`**; set both to benchmark that |
+| `GSNOTE_AMB_GATE` | follow `RETRIEVAL_GATE` | `on` / `off` forces gsnote's relevance gate for `retrieve()` (passed as `search(gate=...)`). `off` suits broad QA questions (preferences, multi-session); `on` suits precision-style runs |
 
 Any other gsnote setting (`RETRIEVAL_CANDIDATE_N`, `RETRIEVAL_GATE`, `RRF_K`, ...) is honoured from
 the environment; the provider does not override gsnote's defaults (candidate pool 50 per branch).

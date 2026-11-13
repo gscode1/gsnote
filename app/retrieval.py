@@ -255,8 +255,12 @@ def search(
     since: str | None = None,
     until: str | None = None,
     top_k: int | None = None,
+    gate: bool | None = None,
 ) -> list[dict]:
     """Hybrid retrieval over notes matching the filters (space=None = all spaces).
+
+    gate: relevance gate for query searches. None follows settings.retrieval_gate; False skips
+    it (broad recall: the top `top_k` by fused rank); True forces it.
 
     since/until: YYYY-MM-DD (whole day in the configured TIMEZONE) or an ISO-8601 datetime.
     Raises ValueError on invalid filters. With an empty query, lists the newest matching
@@ -301,7 +305,7 @@ def search(
             note["similarity"] = similarities.get(note_id)
             results.append(note)
 
-    if settings.retrieval_gate:
+    if settings.retrieval_gate if gate is None else gate:
         exempt = set(_keyword_candidates(conn, query, n, filters, match_all=True))
         results = gate_results(
             results,
