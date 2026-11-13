@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 from app.capture import normalize_category
 from app.config import get_settings
-from app.db import get_conn
+from app.db import get_conn, require_vectors_ready
 from app.embeddings import BGE_MIN_SIMILARITY, embed_query, is_bge_v15_en
 from app.spaces import normalize_space
 
@@ -280,6 +280,7 @@ def search(
         ).fetchall()
         return [{**dict(r), "score": None, "similarity": None} for r in rows]
 
+    require_vectors_ready()
     n = settings.retrieval_candidate_n
     vector = embed_query(query)
     fused = _rrf_fuse(

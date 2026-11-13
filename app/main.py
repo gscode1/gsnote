@@ -11,7 +11,7 @@ from starlette.responses import JSONResponse
 
 from app.capture import capture_note, delete_note, import_notes
 from app.config import get_settings
-from app.db import cursor, get_conn, run_migrations
+from app.db import EmbeddingConfigMismatch, cursor, get_conn, run_migrations
 from app.mcp_server import new_session_manager
 from app.retrieval import search
 from app.spaces import list_spaces
@@ -29,6 +29,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="gsnote", lifespan=lifespan)
+
+
+@app.exception_handler(EmbeddingConfigMismatch)
+def embedding_mismatch_handler(request: Request, exc: EmbeddingConfigMismatch):
+    return JSONResponse({"detail": str(exc)}, status_code=503)
 
 
 def require_api_token(authorization: str | None = Header(default=None)) -> None:

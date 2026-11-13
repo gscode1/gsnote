@@ -1,4 +1,6 @@
+import logging
 import os
+import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -7,6 +9,11 @@ from pathlib import Path
 import sqlite_vec
 
 from app.config import get_settings
+from app.embeddings import document_prefix
+
+logger = logging.getLogger(__name__)
+
+REINDEX_COMMAND = "python -m app.reindex"
 
 _MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
 
@@ -79,6 +86,86 @@ def run_migrations() -> None:
         conn.commit()
 
     _ensure_vector_table(conn)
+    check_embedding_config(conn)
+
+
+class EmbeddingConfigMismatch(RuntimeError):
+    """The vectors in the database were built with a different embedding config than the current one."""
+
+
+# Set by run_migrations() at startup: why vector features are disabled, or None when they are fine.
+# While set, capture/import and query search refuse (require_vectors_ready); everything that does
+# not touch vectors (listing, delete, export, spaces) keeps working.
+_embedding_mismatch: str | None = None
+
+
+def require_vectors_ready() -> None:
+    if _embedding_mismatch is not None:
+        raise EmbeddingConfigMismatch(_embedding_mismatch)
+
+
+def current_embedding_config() -> dict[str, str]:
+    """The embedding config the running process would embed with (document prefix is the effective one)."""
+    settings = get_settings()
+    return {
+        "embedding_model": settings.embedding_model,
+        "embedding_dim": str(settings.embedding_dim),
+        "embedding_document_prefix": document_prefix(),
+    }
+
+
+def recorded_embedding_config(conn: sqlite3.Connection) -> dict[str, str]:
+    """The embedding config recorded in the meta table ({} when nothing is recorded or no meta table)."""
+    try:
+        rows = conn.execute("SELECT key, value FROM meta WHERE key LIKE 'embedding_%'").fetchall()
+    except sqlite3.OperationalError:  # database predates the meta migration
+        return {}
+    return {row[0]: row[1] for row in rows}
+
+
+def record_embedding_config(conn: sqlite3.Connection, config: dict[str, str]) -> None:
+    conn.executemany("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", list(config.items()))
+
+
+def declared_vector_dim(conn: sqlite3.Connection) -> int | None:
+    """Dimension declared by the note_vectors vec0 table, or None if the table does not exist."""
+    row = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='note_vectors'").fetchone()
+    match = re.search(r"FLOAT\[(\d+)\]", row[0], re.IGNORECASE) if row else None
+    return int(match.group(1)) if match else None
+
+
+def _describe(config: dict[str, str]) -> str:
+    if not config:
+        return "not recorded"
+    return ", ".join(f"{k.removeprefix('embedding_')}={v!r}" for k, v in sorted(config.items()))
+
+
+def check_embedding_config(conn: sqlite3.Connection) -> None:
+    """Record the embedding config on first start; flag a mismatch with the current settings."""
+    global _embedding_mismatch
+    _embedding_mismatch = None
+    current = current_embedding_config()
+    recorded = recorded_embedding_config(conn)
+    declared = declared_vector_dim(conn)
+    dim_ok = declared is None or declared == int(current["embedding_dim"])
+
+    if not recorded and dim_ok:
+        # New database, or one created before the config was recorded: assume it matches.
+        record_embedding_config(conn, current)
+        conn.commit()
+        return
+    if recorded == current and dim_ok:
+        return
+
+    why = f"recorded: {_describe(recorded)}; vector table dimension: {declared}; current: {_describe(current)}"
+    _embedding_mismatch = (
+        f"The embedding configuration changed since the stored notes were embedded ({why}). Mixing "
+        "vector spaces gives silently wrong search results, so capture/import and query search are "
+        f"disabled. Re-embed all notes with the current settings: `{REINDEX_COMMAND}` "
+        "(stop the server first; see README, 'Changing the embedding model'), then restart. "
+        "Alternatively restore the previous EMBEDDING_* settings."
+    )
+    logger.error(_embedding_mismatch)
 
 
 def _ensure_vector_table(conn: sqlite3.Connection) -> None:

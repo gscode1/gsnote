@@ -114,11 +114,11 @@ Environment variables (or `.env`); full list in [`.env.example`](.env.example).
 | `TIMEZONE` | `UTC` | IANA name; date-only `since`/`until` mean whole days here |
 | `DB_PATH` | `./data/gsnote.db` | SQLite file (`/data/gsnote.db` in Compose) |
 | `EMBEDDING_PROVIDER` | `local` | `local` (in-process) or `api` (OpenAI-compatible `/embeddings` endpoint) |
-| `EMBEDDING_MODEL` | `BAAI/bge-large-en-v1.5` | Model name. For Polish or other non-English notes use a multilingual model: `intfloat/multilingual-e5-large` (`EMBEDDING_DIM=1024`, prefixes are automatic; set `RETRIEVAL_RELATIVE_GAP=0.03`, its scores are bunched together). Alternatives: `jinaai/jina-embeddings-v3` (1024; CC-BY-NC license, large, slow) and `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` (768; fast, short input limit). Changing the model needs a fresh database or re-embedding of all notes |
-| `EMBEDDING_DIM` | `1024` | Must match the model; do not change on a populated DB without re-embedding |
+| `EMBEDDING_MODEL` | `BAAI/bge-large-en-v1.5` | Model name. For Polish or other non-English notes use a multilingual model: `intfloat/multilingual-e5-large` (`EMBEDDING_DIM=1024`, prefixes are automatic; set `RETRIEVAL_RELATIVE_GAP=0.03`, its scores are bunched together). Alternatives: `jinaai/jina-embeddings-v3` (1024; CC-BY-NC license, large, slow) and `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` (768; fast, short input limit). Changing the model on a populated database needs `python -m app.reindex` ([details](#changing-the-embedding-model)) |
+| `EMBEDDING_DIM` | `1024` | Must match the model. Changing it on a populated database needs `python -m app.reindex` ([details](#changing-the-embedding-model)) |
 | `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY` | empty | For `EMBEDDING_PROVIDER=api` (key optional) |
 | `EMBEDDING_QUERY_PREFIX` | auto | Text prepended to search queries only (so changing it needs no re-embedding). Unset: `Represent this sentence for searching relevant passages: ` for `BAAI/bge-*-en-v1.5`, nothing for other models. `query: ` for `intfloat/*e5*`, nothing for other models. Set it empty to disable |
-| `EMBEDDING_DOCUMENT_PREFIX` | auto | Same, for stored notes only (never queries). Unset: `passage: ` for `intfloat/*e5*`, nothing for other models (bge and jina need none). Set it empty to disable. Changing it on a populated database needs re-embedding |
+| `EMBEDDING_DOCUMENT_PREFIX` | auto | Same, for stored notes only (never queries). Unset: `passage: ` for `intfloat/*e5*`, nothing for other models (bge and jina need none). Set it empty to disable. Changing it on a populated database needs `python -m app.reindex` ([details](#changing-the-embedding-model)) |
 | `RETRIEVAL_TOP_K` | `8` | Maximum number of results |
 | `RETRIEVAL_CANDIDATE_N` | `50` | Candidates per ranker before fusion |
 | `RETRIEVAL_GATE` | `true` | Relevance gate for query searches: return only plausibly relevant notes (at most the limit, possibly none). `false` always returns the top results. A search can skip the gate per call with `broad=true` (MCP `search_notes`, `GET /search`, CLI `--broad`). Listing without a query is never gated |
@@ -126,6 +126,22 @@ Environment variables (or `.env`); full list in [`.env.example`](.env.example).
 | `RETRIEVAL_RELATIVE_GAP` | `0.2` | Gate: drop notes whose similarity is more than this below the best match. `0` = off. Lower is stricter (`0.1` is a good tighter setting for mostly-English notes). The scale depends on the model: `intfloat/multilingual-e5-large` scores cluster between about 0.75 and 0.9, so `0.2` never filters anything there; use about `0.03` |
 | `RRF_K` | `60` | RRF constant |
 | `LITESTREAM_ENABLED`, `S3_*` | off | Optional backup, see below |
+
+## Changing the embedding model
+
+The database records the embedding config its vectors were built with (`EMBEDDING_MODEL`, `EMBEDDING_DIM` and the effective `EMBEDDING_DOCUMENT_PREFIX`). If the settings no longer match (say you switch to `intfloat/multilingual-e5-large`), the server still starts but logs an error and refuses `save_note`/`POST /capture`/`POST /import` and query searches (HTTP 503, MCP tool error), because mixing vector spaces gives silently wrong results. Listing without a query, `delete`, `export` and `spaces` keep working. To switch:
+
+```bash
+docker compose stop gsnote
+# edit .env: EMBEDDING_MODEL, EMBEDDING_DIM, ...
+docker compose run --rm gsnote python -m app.reindex --dry-run   # optional: recorded vs new config, note count
+docker compose run --rm gsnote python -m app.reindex
+docker compose up -d
+```
+
+Without Docker: `uv run python -m app.reindex` (or `gsnote-reindex`) with `DB_PATH` and the new `EMBEDDING_*` set. In Kubernetes, scale the Deployment to 0 and run the same command in a one-off pod with the same PVC and env.
+
+The command re-embeds every note with the current settings (progress is printed; the first run with a new model downloads it) into a staging table, then swaps it in with one transaction together with the recorded config. The old vectors stay untouched until that swap, so an interrupted run changes nothing and you can just rerun it. Run it with the server stopped. Changing `EMBEDDING_QUERY_PREFIX` needs no reindex. A database from before this feature has its current settings recorded on first start (assumed to match; if its vector dimension differs from `EMBEDDING_DIM` it counts as a mismatch). To go back instead, restore the old settings.
 
 ## Kubernetes (Helm)
 

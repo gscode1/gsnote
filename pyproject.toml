@@ -21,6 +21,7 @@ dependencies = [
 
 [project.scripts]
 gsnote = "app.cli:main"
+gsnote-reindex = "app.reindex:main"
 
 [project.optional-dependencies]
 dev = [

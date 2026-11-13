@@ -4,7 +4,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 
-from app.db import cursor, get_conn
+from app.db import cursor, get_conn, require_vectors_ready
 from app.embeddings import embed_document
 from app.spaces import DEFAULT_SPACE, normalize_space
 
@@ -27,6 +27,7 @@ def capture_note(
     space: str = "default",
     category: str = DEFAULT_CATEGORY,
 ) -> dict:
+    require_vectors_ready()
     content = (content or "").strip()
     if not content:
         raise ValueError("Note content must not be empty")
@@ -72,6 +73,7 @@ def delete_note(note_id: str) -> bool:
 
 def import_notes(payload: dict) -> dict:
     """Import an export payload (version 1 = old bot format, version 2). Skips existing ids."""
+    require_vectors_ready()
     version = payload.get("version") if isinstance(payload, dict) else None
     if version not in (1, 2):
         raise ValueError(f"Unsupported export version: {version!r} (expected 1 or 2)")
