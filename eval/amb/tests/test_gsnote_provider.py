@@ -72,7 +72,9 @@ def test_chunk_dedupe_back_to_doc_id(provider):
         Document(id="long", content=long_text, user_id="u"),
         Document(id="short", content="Unrelated note about gardening tomatoes.", user_id="u"),
     ])
-    note_ids = {r["id"] for r in provider.retrieve("pelican signal", k=5, user_id="u")[1]["results"]}
+    from app.retrieval import search
+
+    note_ids = {r["id"] for r in search("pelican signal", space="u", top_k=20)}
     assert {"long::0", "long::1"} <= note_ids  # stored as several chunk notes
     docs, _ = provider.retrieve("filler zebra pelican signal", k=5, user_id="u")
     ids = [d.id for d in docs]

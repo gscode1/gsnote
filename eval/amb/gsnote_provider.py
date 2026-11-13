@@ -206,4 +206,8 @@ class GsnoteMemoryProvider(MemoryProvider):
             )
             if len(docs) >= k:
                 break
-        return docs, {"results": results}
+        # Some AMB datasets (e.g. LongMemEval) put raw_response into the answer prompt instead of
+        # the rendered docs, so raw must hold exactly the k returned memories (with their dates),
+        # never the over-fetched candidate pool.
+        raw = [{"id": d.id, "date": d.timestamp, "content": d.content} for d in docs]
+        return docs, {"results": raw}

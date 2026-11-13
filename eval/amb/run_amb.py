@@ -30,6 +30,38 @@ def _patch_qdrant_signature(cls) -> None:
     cls.async_retrieve = async_retrieve
 
 
+def _patch_mem0_llm(cls) -> None:
+    """AMB's mem0 provider hard-wires Gemini for memory extraction. With AMB_MEM0_LLM_MODEL set,
+    use an OpenAI-compatible endpoint instead (OPENAI_BASE_URL / OPENAI_API_KEY, e.g. a local
+    model). Embedder and vector store stay as AMB configured them."""
+    model = os.environ.get("AMB_MEM0_LLM_MODEL")
+    if not model:
+        return
+    original = cls._build_memory
+
+    def _build_memory(self, qdrant_path):
+        import mem0
+
+        real = mem0.Memory.from_config
+
+        def from_config(config):
+            config = {**config, "llm": {"provider": "openai", "config": {
+                "model": model,
+                "temperature": 0.0,
+                "openai_base_url": os.environ["OPENAI_BASE_URL"],
+                "api_key": os.environ.get("OPENAI_API_KEY", "local"),
+            }}}
+            return real(config)
+
+        mem0.Memory.from_config = from_config  # same class object AMB's provider imported
+        try:
+            return original(self, qdrant_path)
+        finally:
+            mem0.Memory.from_config = real
+
+    cls._build_memory = _build_memory
+
+
 def main(argv: list[str]) -> None:
     from memory_bench.cli import app
     from memory_bench.memory import REGISTRY
@@ -38,6 +70,7 @@ def main(argv: list[str]) -> None:
 
     REGISTRY["gsnote"] = GsnoteMemoryProvider
     _patch_qdrant_signature(REGISTRY["qdrant"])
+    _patch_mem0_llm(REGISTRY["mem0"])
 
     if argv and argv[0] == "run":
         if not any(a in ("-o", "--output-dir") or a.startswith("--output-dir=") for a in argv):
