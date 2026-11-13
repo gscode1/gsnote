@@ -15,7 +15,7 @@ def test_run_migrations_is_idempotent():
     db.run_migrations()
     db.run_migrations()
     versions = [r[0] for r in db.get_conn().execute("SELECT version FROM schema_migrations")]
-    assert versions == ["001_init"]
+    assert versions == ["001_init", "002_meta"]
 
 
 def test_legacy_bot_database_is_rejected():

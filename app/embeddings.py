@@ -109,6 +109,12 @@ def embed_query(text: str) -> list[float]:
     return embed_many([query_prefix() + text], task="query")[0]
 
 
+def embed_documents(texts: list[str]) -> list[list[float]]:
+    """Embed several notes for storage in one call (document prefix applied to each)."""
+    prefix = document_prefix()
+    return embed_many([prefix + t for t in texts], task="document")
+
+
 def embed_document(text: str) -> list[float]:
     """Embed a note for storage (with the model's document prefix, if any). Queries use embed_query()."""
-    return embed_many([document_prefix() + text], task="document")[0]
+    return embed_documents([text])[0]

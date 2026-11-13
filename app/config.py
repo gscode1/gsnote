@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     # instruction for BAAI/bge-*-en-v1.5, nothing for other models. "" = explicitly no prefix.
     embedding_query_prefix: str | None = None
     # Same for stored NOTES only (never queries): None = auto ("passage: " for intfloat/*e5*, nothing
-    # otherwise), "" = explicitly no prefix. Changing it on a populated DB needs re-embedding.
+    # otherwise), "" = explicitly no prefix. Changing it on a populated DB needs `python -m app.reindex`.
     embedding_document_prefix: str | None = None
 
     # --- HTTP API auth ---

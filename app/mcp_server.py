@@ -12,6 +12,7 @@ from pydantic import Field
 
 from app import capture, spaces
 from app.config import get_settings
+from app.db import EmbeddingConfigMismatch
 from app.retrieval import search
 
 INSTRUCTIONS = """\
@@ -66,7 +67,7 @@ def save_note(
     """Save one note. Only when the user asks to remember something or confirms a decision worth keeping."""
     try:
         note = capture.capture_note(content, source="mcp", space=space, category=category)
-    except ValueError as e:  # ToolError text reaches the calling LLM; other exceptions are masked
+    except (ValueError, EmbeddingConfigMismatch) as e:  # ToolError text reaches the calling LLM; other exceptions are masked
         raise ToolError(str(e)) from e
     return _present(note)
 
@@ -101,7 +102,7 @@ def search_notes(
     try:
         notes = search(query, space=space, category=category, since=since, until=until, top_k=limit,
                        gate=False if broad else None)
-    except ValueError as e:
+    except (ValueError, EmbeddingConfigMismatch) as e:
         raise ToolError(str(e)) from e
     now = datetime.now(ZoneInfo(get_settings().timezone))
     return {
